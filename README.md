@@ -58,19 +58,24 @@ services:
 
 If a new version causes issues, don't panic. This repository automatically creates **Versioned Tags** for every build.
 
-1.  Go to the **Packages** section of this GitHub Repo.
-2.  Find the previous version tag (e.g., `2026.04.1`).
-3.  Update your `docker-compose.yml`:
+1.  **Find the version**: Go to the [Packages Section](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container) of this repo.
+2.  **Pick a tag**: Find a previous working tag (e.g., `2026.04.1`).
+3.  **Update Compose**:
     ```yaml
     image: ghcr.io/teeesss/pihole-unbound-container:2026.04.1
     ```
-4.  Run `docker-compose up -d`.
+4.  **Pull and Restart**:
+    ```bash
+    docker pull ghcr.io/teeesss/pihole-unbound-container:2026.04.1
+    docker-compose up -d
+    ```
 
 ---
 
 ## 🤖 Automation Details
 - **Update Checker**: Runs every 12 hours.
 - **Multi-Arch Support**: Built for `x86_64`, `ARM64` (Pi 4/5), and `ARMv7` (Pi 3).
+- **Healthchecks**: Built-in support for checking both Pi-hole and Unbound availability.
 
 ---
 *Maintained by the teeesss autonomous pipeline.*
