@@ -1,0 +1,52 @@
+name: Update Checker
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # Every 12 hours
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Get Latest Pi-hole Release
+        id: pihole
+        run: |
+          # Fetch the latest release from the official repo
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest)
+          VERSION=$(echo $LATEST_RELEASE | jq -r '.tag_name')
+          PUBLISHED_AT=$(echo $LATEST_RELEASE | jq -r '.published_at')
+          
+          echo "Latest Version: $VERSION"
+          echo "Published At: $PUBLISHED_AT"
+          
+          # Calculate age in days
+          PUBLISHED_TS=$(date -d "$PUBLISHED_AT" +%s)
+          CURRENT_TS=$(date +%s)
+          AGE_DAYS=$(( (CURRENT_TS - PUBLISHED_TS) / 86400 ))
+          
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "AGE_DAYS=$AGE_DAYS" >> $GITHUB_OUTPUT
+
+      - name: Update Version File
+        if: steps.pihole.outputs.AGE_DAYS >= 3
+        run: |
+          CURRENT_VERSION=$(cat VERSION 2>/dev/null || echo "none")
+          NEW_VERSION=${{ steps.pihole.outputs.VERSION }}
+          
+          if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+            echo "New stable version detected ($NEW_VERSION). Updating..."
+            echo "$NEW_VERSION" > VERSION
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add VERSION
+            git commit -m "chore: update pi-hole to $NEW_VERSION (3-day buffer met)"
+            git push
+          else
+            echo "Version $NEW_VERSION is already current. Skipping update."
+          fi
