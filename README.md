@@ -49,6 +49,25 @@ services:
 
 ---
 
+## 💡 Pro-Level Insights (Information Only)
+
+For users looking to optimize their 3-node cluster or harden their environment:
+
+### ⚡ Unbound Performance (Multi-Core)
+If your container has multiple CPU cores, you can optimize Unbound by mounting a custom config to `/etc/unbound/unbound.conf.d/pro.conf`:
+- **Threads**: Set `num-threads` to match your core count.
+- **Slabs**: Set `msg-cache-slabs` and `rrset-cache-slabs` to a power of 2 (e.g., `4`) to reduce lock contention.
+
+### 🔒 Security Hardening Tips
+To run in a "Locked Down" state:
+- **Read-Only**: Set `read_only: true` in your compose file (requires `tmpfs` mounts for `/run`, `/tmp`, and `/var/log/pihole`).
+- **Cap-Drop**: You can safely drop `ALL` capabilities and only add back `NET_BIND_SERVICE` and `CHOWN`.
+
+### 🚀 Pi-hole v6 Advantage
+This repository targets the latest Pi-hole versions. v6 introduces a unified FTL-only engine (removing Lighttpd/PHP), which means faster dashboard loads and a smaller security footprint.
+
+---
+
 ## ✅ Verification & Testing
 
 ### 1. Test Recursion
