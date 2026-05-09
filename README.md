@@ -3,7 +3,7 @@
 This is an automated, single-container solution for Pi-hole and Unbound, forked from the `mpgirro` logic for networking stability but enhanced with a **"Set and Forget"** update engine.
 
 > [!IMPORTANT]
-> **Scope Disclaimer**: This repository exists to provide **automation** and **version parity**. It is not a support forum for general Pi-hole or Unbound troubleshooting. If you encounter networking issues, please refer to the official Pi-hole and Unbound documentation.
+> **Scope Disclaimer**: This repository exists to provide **automation** and **version parity**. It is not a support forum for general Pi-hole or Unbound troubleshooting. For functional help, see the [Reference & Support](#reference--support) section below.
 
 ## 🚀 Why this is better?
 
@@ -17,7 +17,7 @@ We wait **3 days** after an official release before building.
 Every build automatically downloads the latest `named.root` from Internic. 
 
 ### 3. Dual-Stream Monitoring
-The "Engine" monitors both Pi-hole releases AND Unbound package updates. 
+The "Engine" monitors both [Pi-hole Releases](https://github.com/pi-hole/docker-pi-hole/releases) AND Unbound package updates. 
 
 ---
 
@@ -51,8 +51,6 @@ services:
 
 ## ✅ Verification & Testing
 
-Run these commands on your host machine to confirm Unbound is validating correctly:
-
 ### 1. Test Recursion
 ```bash
 docker exec -it pihole dig @127.0.0.1 -p 5335 google.com
@@ -67,7 +65,7 @@ docker exec -it pihole dig @127.0.0.1 -p 5335 sigok.verteiltesysteme.net
 # This SHOULD FAIL (BOGUS signature)
 docker exec -it pihole dig @127.0.0.1 -p 5335 sigfail.verteiltesysteme.net
 ```
-*   **Success**: Look for the **`ad`** (Authentic Data) flag in the first result. The second result should timeout or return `SERVFAIL`.
+*   **Success**: Look for the **`ad`** (Authentic Data) flag in the first result. 
 
 ---
 
@@ -76,10 +74,18 @@ docker exec -it pihole dig @127.0.0.1 -p 5335 sigfail.verteiltesysteme.net
 If a new version causes issues, use a versioned tag from the [Packages Section](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container).
 
 ```bash
-docker pull ghcr.io/teeesss/pihole-unbound-container:2026.04.1
-# Update your compose file with the tag and restart
-docker-compose up -d
+docker pull ghcr.io/teeesss/pihole-unbound-container:[VERSION_TAG]
 ```
+
+---
+
+## 📚 Reference & Support
+
+If you have functional issues not related to this Docker build, please use these official resources:
+
+*   **Pi-hole**: [Official Documentation](https://docs.pi-hole.net/) | [Support Forum](https://discourse.pi-hole.net/) | [GitHub Repo](https://github.com/pi-hole/docker-pi-hole)
+*   **Unbound**: [Official Documentation](https://unbound.docs.nlnetlabs.nl/) | [Unbound GitHub](https://github.com/NLnetLabs/unbound)
+*   **Base Logic**: This project's networking logic is based on the [mpgirro/docker-pihole-unbound](https://github.com/mpgirro/docker-pihole-unbound) project.
 
 ---
 
