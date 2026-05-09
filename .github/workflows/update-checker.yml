@@ -1,0 +1,59 @@
+name: Update Checker
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # Every 12 hours
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check Upstream Versions
+        id: check
+        run: |
+          # Check Pi-hole
+          PI_VERSION=$(curl -s "https://api.github.com/repos/pi-hole/docker-pi-hole/releases" | jq -r 'map(select(.prerelease==false)) | .[0].tag_name')
+          PI_DATE=$(curl -s "https://api.github.com/repos/pi-hole/docker-pi-hole/releases" | jq -r 'map(select(.prerelease==false)) | .[0].published_at')
+          
+          # Check Unbound
+          UNBOUND_VERSION=$(curl -s "https://api.github.com/repos/NLnetLabs/unbound/releases" | jq -r 'map(select(.prerelease==false)) | .[0].tag_name')
+          UNBOUND_DATE=$(curl -s "https://api.github.com/repos/NLnetLabs/unbound/releases" | jq -r 'map(select(.prerelease==false)) | .[0].published_at')
+          
+          CURRENT_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          # 3-Day Stability Buffer (259200 seconds)
+          THRESHOLD=259200
+          
+          PI_AGE=$(( $(date -d "$CURRENT_DATE" +%s) - $(date -d "$PI_DATE" +%s) ))
+          UNBOUND_AGE=$(( $(date -d "$CURRENT_DATE" +%s) - $(date -d "$UNBOUND_DATE" +%s) ))
+          
+          echo "latest_pi=$PI_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_unbound=$UNBOUND_VERSION" >> $GITHUB_OUTPUT
+          
+          if [ $PI_AGE -gt $THRESHOLD ] || [ $UNBOUND_AGE -gt $THRESHOLD ]; then
+            echo "stable=true" >> $GITHUB_OUTPUT
+          else
+            echo "stable=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Version File
+        if: steps.check.outputs.stable == 'true'
+        run: |
+          echo "PIHOLE_VERSION=${{ steps.check.outputs.latest_pi }}" > VERSION
+          echo "UNBOUND_VERSION=${{ steps.check.outputs.latest_unbound }}" >> VERSION
+          
+          if git diff --quiet; then
+            echo "No new stable versions found."
+          else
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add VERSION
+            git commit -m "chore: update upstream versions to Pi-hole ${{ steps.check.outputs.latest_pi }} and Unbound ${{ steps.check.outputs.latest_unbound }}"
+            git push
+          fi
