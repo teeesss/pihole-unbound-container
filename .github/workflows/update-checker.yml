@@ -24,39 +24,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ── Helper: fetch releases with auth, validate array, extract fields ──────
-          fetch_release() {
+          # ── Helper: curl with retries ────────────────────────────────────────────
+          fetch_url() {
+            local url="$1"
+            local headers=("${@:2}")
+            local curl_cmd=(curl -sf --connect-timeout 10 --retry 3 --retry-delay 5)
+            
+            for h in "${headers[@]}"; do
+              curl_cmd+=(-H "$h")
+            done
+            
+            "${curl_cmd[@]}" "$url"
+          }
+
+          # ── Helper: fetch from GitHub Releases ───────────────────────────────────
+          get_github_release() {
             local repo="$1"
             local field="$2"
             local response
+            
+            response=$(fetch_url "https://api.github.com/repos/${repo}/releases" \
+              "Authorization: Bearer ${GH_TOKEN}" \
+              "Accept: application/vnd.github+json" \
+              "X-GitHub-Api-Version: 2022-11-28") || return 1
 
-            response=$(curl -sf \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/${repo}/releases" 2>&1) || {
-              echo "::warning::curl failed for ${repo} (network error)" >&2
-              echo ""
-              return 0
-            }
-
-            # Guard: must be a JSON array (rate-limit / error returns an object)
             if ! echo "$response" | jq -e 'type == "array"' > /dev/null 2>&1; then
-              local msg
-              msg=$(echo "$response" | jq -r '.message // "unknown error"' 2>/dev/null || echo "non-JSON response")
-              echo "::warning::GitHub API returned non-array for ${repo}: ${msg}" >&2
-              echo ""
-              return 0
+              return 1
             fi
 
-            # 4-Layer stable-only filter:
-            #   1. .prerelease==false  — API flag set by maintainer
-            #   2. .draft==false       — not an unpublished draft
-            #   3. BLOCKLIST           — reject tags with known non-stable keywords
-            #   4. ALLOWLIST           — tag must be pure semver, date-based, OR release-X.Y.Z
-            #
-            # Accepts:  v1.2.3  |  1.2.3  |  2024.06.01  |  v2024.06.01  |  release-1.25.0
-            # Rejects:  v2.1.0-rc1  |  nightly-20240601  |  v1.0-hotfix  |  beta-2.0
+            # 4-Layer stable-only filter
             echo "$response" | jq -r '
               map(select(
                 .prerelease==false and
@@ -66,46 +62,76 @@ jobs:
               )) | .[0].'"${field}"' // ""'
           }
 
-          # ── Pi-hole ───────────────────────────────────────────────────────────────
-          PI_VERSION=$(fetch_release "pi-hole/docker-pi-hole" "tag_name")
-          PI_DATE=$(fetch_release    "pi-hole/docker-pi-hole" "published_at")
+          # ── Fallback: fetch from Docker Hub (for Pi-hole) ────────────────────────
+          get_dockerhub_tag() {
+            local repo="$1"
+            local response
+            
+            response=$(fetch_url "https://registry.hub.docker.com/v2/repositories/${repo}/tags?page_size=50") || return 1
+            
+            # Extract tags that match our stable allowlist, exclude known junk, sort and take latest
+            echo "$response" | jq -r '
+              .results[].name | 
+              select(
+                test("^(v?\\d+([.\\-]\\d+)*)$") and 
+                (test("(?i)(alpha|beta|rc|rh|test|dev|nightly|pre[.\\-]|snapshot|preview|unstable|canary|experimental)") | not)
+              )' | sort -V | tail -n1
+          }
 
-          # ── Unbound ───────────────────────────────────────────────────────────────
-          UNBOUND_VERSION=$(fetch_release "NLnetLabs/unbound" "tag_name")
-          UNBOUND_DATE=$(fetch_release    "NLnetLabs/unbound" "published_at")
+          # ── Helper: Downgrade Guard ──────────────────────────────────────────────
+          is_downgrade() {
+            local current="$1"
+            local new="$2"
+            [ "$(echo -e "$current\n$new" | sort -V | head -n1)" == "$new" ] && [ "$current" != "$new" ]
+          }
 
-          echo "Pi-hole latest : ${PI_VERSION:-<unknown>} (${PI_DATE:-?})"
-          echo "Unbound latest : ${UNBOUND_VERSION:-<unknown>} (${UNBOUND_DATE:-?})"
+          # ── Execution ────────────────────────────────────────────────────────────
+          
+          # 1. Resolve Pi-hole
+          PI_VERSION=$(get_github_release "pi-hole/docker-pi-hole" "tag_name" || get_dockerhub_tag "pihole/pihole")
+          PI_DATE=$(get_github_release "pi-hole/docker-pi-hole" "published_at" || date -u +%Y-%m-%dT%H:%M:%SZ) # fallback to now if date missing
+          
+          # 2. Resolve Unbound
+          UNBOUND_VERSION=$(get_github_release "NLnetLabs/unbound" "tag_name" || echo "")
+          UNBOUND_DATE=$(get_github_release "NLnetLabs/unbound" "published_at" || date -u +%Y-%m-%dT%H:%M:%SZ)
 
-          # ── Bail out gracefully if we couldn't resolve versions ───────────────────
+          echo "Pi-hole candidate  : ${PI_VERSION:-<unknown>} (${PI_DATE:-?})"
+          echo "Unbound candidate  : ${UNBOUND_VERSION:-<unknown>} (${UNBOUND_DATE:-?})"
+
+          # Check against current
+          CURR_PI=$(grep PIHOLE_VERSION VERSION | cut -d'=' -f2 || echo "0.0.0")
+          CURR_UNBOUND=$(grep UNBOUND_VERSION VERSION | cut -d'=' -f2 || echo "0.0.0")
+
+          # Bail if resolution failed
           if [ -z "$PI_VERSION" ] || [ -z "$UNBOUND_VERSION" ]; then
-            echo "::warning::One or more versions could not be resolved; skipping update."
-            echo "latest_pi=${PI_VERSION:-unknown}"          >> "$GITHUB_OUTPUT"
-            echo "latest_unbound=${UNBOUND_VERSION:-unknown}" >> "$GITHUB_OUTPUT"
-            echo "stable=false"                              >> "$GITHUB_OUTPUT"
+            echo "::warning::Resolution failed; skipping."
+            echo "stable=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          CURRENT_EPOCH=$(date -u +%s)
+          # Downgrade guard
+          if is_downgrade "$CURR_PI" "$PI_VERSION"; then
+            echo "::warning::Pi-hole resolved to an older version ($PI_VERSION < $CURR_PI); guarding against downgrade."
+            PI_VERSION="$CURR_PI"
+          fi
+          if is_downgrade "$CURR_UNBOUND" "$UNBOUND_VERSION"; then
+            echo "::warning::Unbound resolved to an older version ($UNBOUND_VERSION < $CURR_UNBOUND); guarding against downgrade."
+            UNBOUND_VERSION="$CURR_UNBOUND"
+          fi
 
-          # ── 3-Day Stability Buffer (259200 seconds) ───────────────────────────────
+          # 3-Day Buffer check
           THRESHOLD=259200
+          NOW=$(date -u +%s)
+          PI_AGE=$(( NOW - $(date -d "$PI_DATE" +%s 2>/dev/null || echo "$NOW") ))
+          UNBOUND_AGE=$(( NOW - $(date -d "$UNBOUND_DATE" +%s 2>/dev/null || echo "$NOW") ))
 
-          PI_EPOCH=$(date -d "$PI_DATE" +%s 2>/dev/null || echo 0)
-          UNBOUND_EPOCH=$(date -d "$UNBOUND_DATE" +%s 2>/dev/null || echo 0)
-
-          PI_AGE=$(( CURRENT_EPOCH - PI_EPOCH ))
-          UNBOUND_AGE=$(( CURRENT_EPOCH - UNBOUND_EPOCH ))
-
-          echo "Pi-hole age    : ${PI_AGE}s (threshold ${THRESHOLD}s)"
-          echo "Unbound age    : ${UNBOUND_AGE}s (threshold ${THRESHOLD}s)"
-
-          echo "latest_pi=$PI_VERSION"          >> "$GITHUB_OUTPUT"
+          echo "latest_pi=$PI_VERSION" >> "$GITHUB_OUTPUT"
           echo "latest_unbound=$UNBOUND_VERSION" >> "$GITHUB_OUTPUT"
 
-          if [ "$PI_AGE" -gt "$THRESHOLD" ] || [ "$UNBOUND_AGE" -gt "$THRESHOLD" ]; then
+          if [ "$PI_AGE" -ge "$THRESHOLD" ] && [ "$UNBOUND_AGE" -ge "$THRESHOLD" ]; then
             echo "stable=true" >> "$GITHUB_OUTPUT"
           else
+            echo "::notice::Stable versions found but 3-day buffer not yet met."
             echo "stable=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -116,7 +142,7 @@ jobs:
           echo "UNBOUND_VERSION=${{ steps.check.outputs.latest_unbound }}" >> VERSION
 
           if git diff --quiet; then
-            echo "No new stable versions found."
+            echo "Versions are already current."
           else
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
