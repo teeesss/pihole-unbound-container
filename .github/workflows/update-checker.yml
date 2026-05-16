@@ -49,7 +49,11 @@ jobs:
               return 0
             }
 
-            echo "$response" | jq -r "map(select(.prerelease==false and .draft==false)) | .[0].${field} // \"\""
+            echo "$response" | jq -r "map(select(
+                .prerelease==false and
+                .draft==false and
+                (.tag_name | test(\"(?i)(alpha|beta|rc|rh|test|dev|nightly|pre[.-]|snapshot)\") | not)
+              )) | .[0].${field} // \"\""
           }
 
           # ── Pi-hole ───────────────────────────────────────────────────────────────
