@@ -3,33 +3,34 @@
 [![Build Status](https://github.com/teeesss/pihole-unbound-container/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/teeesss/pihole-unbound-container/actions/workflows/docker-publish.yml)
 [![Update Checker](https://github.com/teeesss/pihole-unbound-container/actions/workflows/update-checker.yml/badge.svg)](https://github.com/teeesss/pihole-unbound-container/actions/workflows/update-checker.yml)
 
-A **single-container**, self-updating solution pairing [Pi-hole](https://pi-hole.net/) with [Unbound](https://nlnetlabs.nl/projects/unbound/about/) for recursive, encrypted, ad-blocking DNS on your local network.
+A **single-container**, self-updating solution pairing [Pi-hole](https://pi-hole.net/) with [Unbound](https://nlnetlabs.nl/projects/unbound/about/) for recursive, privacy-focused, ad-blocking DNS on your local network.
 
 > [!NOTE]
-> **What this is**: An automated container build and update pipeline. It is **not** a support forum for general Pi-hole or Unbound configuration. For product support, see [Reference & Support](#-reference--support) below.
+> This repository provides an **automated container build pipeline**. It is not a support forum for Pi-hole or Unbound. For product help, see [Reference & Support](#-reference--support).
 
 ---
 
 ## What Is This?
 
-This container runs **Pi-hole** (DNS sinkhole / ad-blocker) and **Unbound** (recursive DNS resolver) side-by-side in a single Docker image.
+This container runs two services side-by-side in a single Docker image:
 
-- **Pi-hole** intercepts DNS queries, blocking ad and tracker domains at the network level for all devices on your network.
-- **Unbound** resolves DNS queries directly against the root DNS servers — no upstream provider like Google (8.8.8.8) or Cloudflare (1.1.1.1). Your DNS queries never leave your network.
+- **Pi-hole** — a DNS sinkhole that blocks ads and trackers at the network level for every device on your network.
+- **Unbound** — a validating, recursive DNS resolver that queries authoritative DNS servers directly instead of forwarding to a third-party provider like Google (`8.8.8.8`) or Cloudflare (`1.1.1.1`).
 
-Together, they give you **privacy**, **speed**, and **ad-blocking** with full **DNSSEC validation**.
+Together they give you **ad-blocking**, **DNSSEC validation**, and **DNS privacy** — no third-party resolver ever sees your query history.
 
 > [!TIP]
-> New to Pi-hole? Start with the official [Pi-hole documentation](https://docs.pi-hole.net/) before deploying. New to Unbound? Read the [official Unbound guide on Pi-hole's docs](https://docs.pi-hole.net/guides/dns/unbound/).
+> New to Pi-hole? Start with the official [Pi-hole documentation](https://docs.pi-hole.net/). New to Unbound? Read the [Pi-hole + Unbound guide](https://docs.pi-hole.net/guides/dns/unbound/).
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose installed on your host.
-- A host on your local network (a Raspberry Pi, VM, NAS, etc.)
-- Port `53` (DNS) and `80`/`443` (Pi-hole Web UI) available on the host.
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
+- A host on your local network (Raspberry Pi, VM, NAS, old laptop, etc.).
+- Port **53** (DNS) and **80** (Pi-hole Web UI) available on the host.
 
 ### 1. Create a `docker-compose.yml`
 
@@ -38,18 +39,19 @@ services:
   pihole:
     image: ghcr.io/teeesss/pihole-unbound-container:latest
     container_name: pihole
+    hostname: pihole
     environment:
-      TZ: 'America/Chicago'            # Your timezone
-      WEBPASSWORD: 'your-password'     # Pi-hole admin dashboard password
-      PIHOLE_DNS_: '127.0.0.1#5335'   # Use the bundled Unbound resolver
+      TZ: 'America/Chicago'            # Set to your timezone
+      WEBPASSWORD: 'changeme'          # Pi-hole admin dashboard password
+      PIHOLE_DNS_: '127.0.0.1#5335'   # Points Pi-hole at the bundled Unbound
       DNSSEC: 'true'                   # Enable DNSSEC validation
     ports:
-      - "53:53/tcp"                    # DNS
-      - "53:53/udp"
-      - "80:80/tcp"                    # Pi-hole web UI
+      - "53:53/tcp"                    # DNS (TCP)
+      - "53:53/udp"                    # DNS (UDP)
+      - "80:80/tcp"                    # Pi-hole web dashboard
     volumes:
-      - './etc-pihole:/etc/pihole'
-      - './etc-dnsmasq.d:/etc/dnsmasq.d'
+      - './etc-pihole:/etc/pihole'           # Persistent Pi-hole config
+      - './etc-dnsmasq.d:/etc/dnsmasq.d'     # Persistent dnsmasq config
     restart: unless-stopped
 ```
 
@@ -59,94 +61,99 @@ services:
 docker compose up -d
 ```
 
-### 3. Point Your Network at Pi-hole
+### 3. Access the Dashboard
 
-Set your **router's DHCP DNS server** (or individual device DNS) to the IP address of the machine running this container. Pi-hole will handle all DNS queries for your network.
+Open `http://<HOST_IP>/admin` in your browser and log in with the password you set above.
+
+### 4. Point Your Network at Pi-hole
+
+Set your **router's DHCP DNS server** to the IP address of the host running this container. All devices on the network will then use Pi-hole for DNS.
 
 > [!IMPORTANT]
-> For step-by-step router configuration, see [Pi-hole's documentation on router setup](https://docs.pi-hole.net/main/post-install/).
-
----
-
-## ⚙️ Pi-hole DNS Configuration
-
-Because Unbound is bundled inside the container, Pi-hole must be told to use it instead of an external DNS provider.
-
-If you set `PIHOLE_DNS_: '127.0.0.1#5335'` in your environment variables (as shown above), this is handled automatically.
-
-To verify or change it manually in the Pi-hole Web UI:
-1. Open the Pi-hole dashboard → **Settings** → **DNS**.
-2. Uncheck all upstream DNS servers.
-3. Under **Custom DNS (IPv4)**, enter `127.0.0.1#5335`.
-4. Click **Save**.
-
-> [!TIP]
-> Port `5335` is the port Unbound listens on inside the container. It is not exposed externally — it is only reachable by Pi-hole internally.
+> For router-specific instructions, see [Pi-hole's post-install guide](https://docs.pi-hole.net/main/post-install/).
 
 ---
 
 ## ✅ Verification
 
-### Test DNS Resolution
+After starting the container, confirm everything is working:
+
+### Test DNS Resolution (Unbound)
 ```bash
 docker exec -it pihole dig @127.0.0.1 -p 5335 google.com
 ```
-**Expected**: Returns `status: NOERROR` and an IP address.
+**Expected**: `status: NOERROR` with an IP address in the answer section.
 
 ### Test DNSSEC Validation
 ```bash
-# This should SUCCEED (look for the 'ad' Authentic Data flag)
+# Should SUCCEED — look for the 'ad' (Authentic Data) flag in the output
 docker exec -it pihole dig @127.0.0.1 -p 5335 sigok.verteiltesysteme.net
 
-# This should FAIL with SERVFAIL (signature is intentionally broken)
+# Should FAIL with SERVFAIL — the signature on this domain is intentionally broken
 docker exec -it pihole dig @127.0.0.1 -p 5335 sigfail.verteiltesysteme.net
 ```
-The `ad` flag in the first result confirms DNSSEC is working correctly.
+
+### Test Pi-hole Ad-blocking
+```bash
+# Should return 0.0.0.0 or NXDOMAIN (blocked)
+docker exec -it pihole dig @127.0.0.1 ads.google.com
+```
 
 ---
 
-## ⏪ Rollback to a Previous Version
+## ⚙️ Configuration
 
-All versioned images are published to the GitHub Container Registry. If an update causes issues, pin to a specific version:
+### Pi-hole DNS Settings
 
-```bash
-# See available versions
-# https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container
+The `PIHOLE_DNS_: '127.0.0.1#5335'` environment variable tells Pi-hole to forward all DNS queries to the bundled Unbound resolver on port 5335. This is configured automatically when you use the compose file above.
 
-docker pull ghcr.io/teeesss/pihole-unbound-container:2026.05.0
-```
+To verify or change it manually:
+1. Open the Pi-hole dashboard → **Settings** → **DNS**.
+2. Uncheck all upstream DNS servers (Google, Cloudflare, etc.).
+3. Under **Custom DNS (IPv4)**, enter `127.0.0.1#5335`.
+4. Click **Save**.
 
-Then update your `docker-compose.yml` to pin the image tag:
-```yaml
-image: ghcr.io/teeesss/pihole-unbound-container:2026.05.0
-```
+> [!TIP]
+> Port 5335 is internal to the container — it is not exposed to your network. Only Pi-hole can reach Unbound on this port.
+
+### IPv6
+
+The bundled Unbound configuration has IPv6 disabled by default (`do-ip6: no`). If your network has native IPv6 connectivity and you want Unbound to query authoritative servers over IPv6, mount a custom config (see below) and set `do-ip6: yes`.
+
+> [!NOTE]
+> For IPv6 configuration guidance, see the [Pi-hole IPv6 documentation](https://docs.pi-hole.net/) and the [Unbound configuration reference](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
 
 ---
 
 ## 💡 Advanced Configuration
 
-### Custom Unbound Configuration
-Mount a custom config file to extend or override Unbound settings:
+### Custom Unbound Settings
+
+Mount a custom config file to extend or override the defaults:
+
 ```yaml
 volumes:
   - './my-unbound.conf:/etc/unbound/unbound.conf.d/custom.conf'
 ```
 
-**Multi-core performance** — if your host has multiple CPU cores, add this to your custom config:
+**Multi-core performance** — if your host has multiple CPU cores:
+
 ```ini
 server:
     num-threads: 4               # Match your core count
-    msg-cache-slabs: 4           # Must be a power of 2
+    msg-cache-slabs: 4           # Power of 2, reduces lock contention
     rrset-cache-slabs: 4
     infra-cache-slabs: 4
     key-cache-slabs: 4
 ```
 
 > [!NOTE]
-> For all Unbound configuration options, see the [Unbound man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
+> For the complete list of Unbound options, see the [Unbound man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
 
 ### Security Hardening
-Run the container in a locked-down state by dropping Linux capabilities:
+
+Drop all Linux capabilities and add back only the required ones:
+
 ```yaml
 cap_drop:
   - ALL
@@ -158,86 +165,126 @@ cap_add:
 ```
 
 > [!CAUTION]
-> Capability requirements may change between Pi-hole versions. Always test after a version update. See [Pi-hole's Docker documentation](https://github.com/pi-hole/docker-pi-hole#docker-compose-examples) for the latest guidance.
+> Capability requirements may change between Pi-hole versions. Always test after upgrading. See the [Pi-hole Docker repo](https://github.com/pi-hole/docker-pi-hole) for the latest guidance.
+
+---
+
+## ⏪ Rollback
+
+All versioned images are published to the [GitHub Container Registry](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container). Image tags mirror the upstream **Pi-hole version** (e.g., `2026.05.0`).
+
+To pin to a specific version:
+
+```yaml
+# In your docker-compose.yml
+image: ghcr.io/teeesss/pihole-unbound-container:2026.05.0
+```
+
+Then recreate the container:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+---
+
+## ❓ Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Container exits immediately | Port 53 already in use | Stop `systemd-resolved` or other DNS services: `sudo systemctl disable --now systemd-resolved` |
+| `dig` returns SERVFAIL for everything | Unbound failed to start | Check logs: `docker logs pihole` and look for Unbound errors |
+| No `ad` flag on DNSSEC queries | DNSSEC not enabled | Verify `DNSSEC: 'true'` is set in your environment |
+| Dashboard unreachable | Port 80 conflict | Check if another service (Apache, Nginx) is using port 80 |
+| Slow first query after restart | Normal Unbound behavior | Unbound has an empty cache on startup — it warms up within minutes |
+
+> [!NOTE]
+> For detailed troubleshooting, see the [Pi-hole FAQ](https://docs.pi-hole.net/) and the [Unbound troubleshooting guide](https://unbound.docs.nlnetlabs.nl/en/latest/getting-started/troubleshooting.html).
 
 ---
 
 ## 🤖 Automation Architecture
 
-This repository is designed to be **fully autonomous** — it self-updates to the latest stable versions of both Pi-hole and Unbound without manual intervention.
+This repository is **fully autonomous** — no manual intervention needed. The pipeline checks for new stable releases every 12 hours and rebuilds the container image when versions change.
 
-### The Update Pipeline
+### Update Pipeline
 
 ```
 GitHub Actions (every 12h)
          │
          ▼
-  fetch_release() Helper
-  ├── GitHub API (authenticated, 5000 req/hr)
-  └── Docker Hub API (fallback if GitHub unavailable)
+  fetch_release() ─── GitHub API (authenticated, 5000 req/hr)
+         │              └── Docker Hub API (fallback)
+         ▼
+  ┌─ 4-Layer Stability Filter ─────────────────────────┐
+  │  Layer 1: .prerelease == false     (API flag)       │
+  │  Layer 2: .draft == false          (API flag)       │
+  │  Layer 3: Tag Blocklist            (alpha/beta/rc…) │
+  │  Layer 4: Tag Allowlist            (semver only)    │
+  └─────────────────────────────────────────────────────┘
          │
          ▼
-  4-Layer Stability Filter
-  ├── Layer 1: .prerelease == false  (API flag)
-  ├── Layer 2: .draft == false       (API flag)
-  ├── Layer 3: Tag Blocklist         (alpha/beta/rc/rh/dev/nightly/...)
-  └── Layer 4: Tag Allowlist         (must be clean semver or release-X.Y.Z)
+  3-Day Stability Buffer (waits 72h for community testing)
          │
          ▼
-  3-Day Stability Buffer
-  (waits 72h after release before accepting)
+  Downgrade Guard (sort -V rejects older versions)
          │
          ▼
-  Downgrade Guard
-  (sort -V prevents rolling back to an older version)
-         │
-         ▼
-  Update VERSION file → triggers Docker build → pushes to GHCR
+  VERSION file updated → Docker build triggered → pushed to GHCR
 ```
 
-### Accepted vs. Rejected Tags
+### Tag Filtering Examples
 
-| Tag | Accepted? | Reason |
+| Tag | Result | Reason |
 |---|---|---|
-| `2026.05.0` | ✅ | Pi-hole date-based release |
-| `v2.1.3` | ✅ | Standard semver |
-| `release-1.25.0` | ✅ | Unbound's confirmed tag format |
-| `v2.1.0-rc1` | ❌ | Blocklist: `rc` keyword |
-| `v2.1.0-hotfix` | ❌ | Allowlist: unknown suffix |
-| `nightly-20240601` | ❌ | Blocklist: `nightly` keyword |
-| `vTestTag` | ❌ | Allowlist: non-numeric suffix |
+| `2026.05.0` | ✅ Accepted | Pi-hole date-based release |
+| `v2.1.3` | ✅ Accepted | Standard semver |
+| `release-1.25.0` | ✅ Accepted | Unbound's official tag format |
+| `v2.1.0-rc1` | ❌ Rejected | Blocklist: `rc` keyword |
+| `v2.1.0-hotfix` | ❌ Rejected | Allowlist: suffix not numeric |
+| `nightly-20240601` | ❌ Rejected | Blocklist: `nightly` keyword |
+| `vTestTag` | ❌ Rejected | Allowlist: non-numeric content |
 
-### Build Details
+### Infrastructure Details
 
 | Component | Detail |
 |---|---|
-| **Update Checker** | Runs every 12 hours via GitHub Actions cron |
-| **API Auth** | `GITHUB_TOKEN` auto-injected by GitHub (5,000 req/hr) |
-| **API Fallback** | Docker Hub Registry API if GitHub is unreachable |
-| **Network Resilience** | 3-retry with backoff on all API calls |
-| **Graceful Failure** | Emits `::warning::` and exits cleanly instead of failing red |
-| **Multi-Arch Builds** | `linux/amd64`, `linux/arm64`, `linux/arm/v7` |
-| **Build Trigger** | Auto-fires when `VERSION` or `docker/` files change |
+| **Update Frequency** | Every 12 hours via GitHub Actions cron |
+| **API Authentication** | `GITHUB_TOKEN` (auto-provided by GitHub, 5,000 req/hr) |
+| **API Fallback** | Docker Hub Registry API if GitHub API is unreachable |
+| **Network Resilience** | 3 retries with exponential backoff on all API calls |
+| **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
+| **Multi-Arch** | `linux/amd64`, `linux/arm64`, `linux/arm/v7` |
+| **Build Trigger** | Changes to `VERSION`, `docker/`, or the workflow file itself |
+| **Layer Cache** | GitHub Actions cache (`type=gha`) for fast multi-arch rebuilds |
 
 ---
 
 ## 📚 Reference & Support
 
-### Official Documentation
-- **Pi-hole Docs**: [docs.pi-hole.net](https://docs.pi-hole.net/)
-- **Pi-hole Docker**: [github.com/pi-hole/docker-pi-hole](https://github.com/pi-hole/docker-pi-hole)
-- **Pi-hole + Unbound Guide**: [docs.pi-hole.net/guides/dns/unbound](https://docs.pi-hole.net/guides/dns/unbound/)
-- **Pi-hole Community Forum**: [discourse.pi-hole.net](https://discourse.pi-hole.net/)
+### Pi-hole
+| Resource | Link |
+|---|---|
+| Documentation | [docs.pi-hole.net](https://docs.pi-hole.net/) |
+| Docker Image | [github.com/pi-hole/docker-pi-hole](https://github.com/pi-hole/docker-pi-hole) |
+| Pi-hole + Unbound Guide | [docs.pi-hole.net/guides/dns/unbound](https://docs.pi-hole.net/guides/dns/unbound/) |
+| Community Forum | [discourse.pi-hole.net](https://discourse.pi-hole.net/) |
 
 ### Unbound
-- **Unbound Docs**: [unbound.docs.nlnetlabs.nl](https://unbound.docs.nlnetlabs.nl/)
-- **Unbound GitHub**: [github.com/NLnetLabs/unbound](https://github.com/NLnetLabs/unbound)
+| Resource | Link |
+|---|---|
+| Documentation | [unbound.docs.nlnetlabs.nl](https://unbound.docs.nlnetlabs.nl/) |
+| Configuration Reference | [unbound.conf man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html) |
+| GitHub | [github.com/NLnetLabs/unbound](https://github.com/NLnetLabs/unbound) |
+| Troubleshooting | [Unbound Troubleshooting Guide](https://unbound.docs.nlnetlabs.nl/en/latest/getting-started/troubleshooting.html) |
 
 ### This Repository
-- **Container Packages**: [GHCR Packages](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container)
-- **Build Logs**: [Actions Tab](https://github.com/teeesss/pihole-unbound-container/actions)
-- **Base Logic**: Networking adapted from [mpgirro/docker-pihole-unbound](https://github.com/mpgirro/docker-pihole-unbound)
+| Resource | Link |
+|---|---|
+| Container Images | [GHCR Packages](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container) |
+| Build Logs | [Actions Tab](https://github.com/teeesss/pihole-unbound-container/actions) |
+| Original Base | [mpgirro/docker-pihole-unbound](https://github.com/mpgirro/docker-pihole-unbound) |
 
 ---
 
-*Maintained by the teeesss autonomous pipeline. For Pi-hole or Unbound product issues, please use their official support channels above.*
+*Maintained by the teeesss autonomous pipeline. For Pi-hole or Unbound product questions, please use the official support channels linked above.*
