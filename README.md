@@ -41,10 +41,10 @@ services:
     container_name: pihole
     hostname: pihole
     environment:
-      TZ: 'America/Chicago'            # Set to your timezone
-      WEBPASSWORD: 'changeme'          # Pi-hole admin dashboard password
-      PIHOLE_DNS_: '127.0.0.1#5335'   # Points Pi-hole at the bundled Unbound
-      DNSSEC: 'true'                   # Enable DNSSEC validation
+      TZ: 'America/Chicago'                          # Set to your timezone
+      FTLCONF_webserver_api_password: 'changeme'     # Pi-hole v6 admin password
+      PIHOLE_DNS_: '127.0.0.1#5335'                  # Points Pi-hole at the bundled Unbound
+      FTLCONF_dns_dnssec: 'true'                     # Enable DNSSEC validation
     ports:
       - "53:53/tcp"                    # DNS (TCP)
       - "53:53/udp"                    # DNS (UDP)
@@ -55,6 +55,9 @@ services:
     restart: unless-stopped
 ```
 
+> [!WARNING]
+> Pi-hole v6 replaced the `WEBPASSWORD` environment variable with `FTLCONF_webserver_api_password`. If you are coming from an older guide, update your compose file accordingly. See the [Pi-hole v6 Docker documentation](https://github.com/pi-hole/docker-pi-hole) for all available `FTLCONF_` variables.
+
 ### 2. Start the Container
 
 ```bash
@@ -64,6 +67,9 @@ docker compose up -d
 ### 3. Access the Dashboard
 
 Open `http://<HOST_IP>/admin` in your browser and log in with the password you set above.
+
+> [!TIP]
+> If port 80 is occupied by another service, Pi-hole's embedded web server (FTL) will automatically fall back to port **8080**. Try `http://<HOST_IP>:8080/admin` if the default doesn't respond.
 
 ### 4. Point Your Network at Pi-hole
 
@@ -121,7 +127,7 @@ To verify or change it manually:
 The bundled Unbound configuration has IPv6 disabled by default (`do-ip6: no`). If your network has native IPv6 connectivity and you want Unbound to query authoritative servers over IPv6, mount a custom config (see below) and set `do-ip6: yes`.
 
 > [!NOTE]
-> For IPv6 configuration guidance, see the [Pi-hole IPv6 documentation](https://docs.pi-hole.net/) and the [Unbound configuration reference](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
+> For IPv6 guidance, see the [Pi-hole documentation](https://docs.pi-hole.net/) and the [Unbound configuration reference](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
 
 ---
 
@@ -148,7 +154,7 @@ server:
 ```
 
 > [!NOTE]
-> For the complete list of Unbound options, see the [Unbound man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
+> For the complete list of Unbound options, see the [unbound.conf man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html). For performance tuning tips, see the [Unbound Performance Tuning guide](https://unbound.docs.nlnetlabs.nl/en/latest/topics/core/performance.html).
 
 ### Security Hardening
 
@@ -194,12 +200,13 @@ docker compose up -d --force-recreate
 |---|---|---|
 | Container exits immediately | Port 53 already in use | Stop `systemd-resolved` or other DNS services: `sudo systemctl disable --now systemd-resolved` |
 | `dig` returns SERVFAIL for everything | Unbound failed to start | Check logs: `docker logs pihole` and look for Unbound errors |
-| No `ad` flag on DNSSEC queries | DNSSEC not enabled | Verify `DNSSEC: 'true'` is set in your environment |
-| Dashboard unreachable | Port 80 conflict | Check if another service (Apache, Nginx) is using port 80 |
+| No `ad` flag on DNSSEC queries | DNSSEC not enabled | Verify `FTLCONF_dns_dnssec: 'true'` is set in your environment |
+| Dashboard unreachable on port 80 | Port 80 conflict | Try port 8080 (`http://<IP>:8080/admin`) — FTL auto-fallback |
 | Slow first query after restart | Normal Unbound behavior | Unbound has an empty cache on startup — it warms up within minutes |
+| Password not working after upgrade | Pi-hole v6 env var change | Replace `WEBPASSWORD` with `FTLCONF_webserver_api_password` |
 
 > [!NOTE]
-> For detailed troubleshooting, see the [Pi-hole FAQ](https://docs.pi-hole.net/) and the [Unbound troubleshooting guide](https://unbound.docs.nlnetlabs.nl/en/latest/getting-started/troubleshooting.html).
+> For detailed help, see the [Pi-hole FAQ](https://docs.pi-hole.net/) and the [Unbound documentation](https://unbound.docs.nlnetlabs.nl/en/latest/).
 
 ---
 
@@ -237,9 +244,9 @@ GitHub Actions (every 12h)
 
 | Tag | Result | Reason |
 |---|---|---|
-| `2026.05.0` | ✅ Accepted | Pi-hole date-based release |
+| `2026.05.0` | ✅ Accepted | Pi-hole date-based release (`YYYY.MM.N`) |
 | `v2.1.3` | ✅ Accepted | Standard semver |
-| `release-1.25.0` | ✅ Accepted | Unbound's official tag format |
+| `release-1.25.0` | ✅ Accepted | Unbound's official tag format (`release-X.Y.Z`) |
 | `v2.1.0-rc1` | ❌ Rejected | Blocklist: `rc` keyword |
 | `v2.1.0-hotfix` | ❌ Rejected | Allowlist: suffix not numeric |
 | `nightly-20240601` | ❌ Rejected | Blocklist: `nightly` keyword |
@@ -266,7 +273,7 @@ GitHub Actions (every 12h)
 | Resource | Link |
 |---|---|
 | Documentation | [docs.pi-hole.net](https://docs.pi-hole.net/) |
-| Docker Image | [github.com/pi-hole/docker-pi-hole](https://github.com/pi-hole/docker-pi-hole) |
+| Docker Image & v6 Env Vars | [github.com/pi-hole/docker-pi-hole](https://github.com/pi-hole/docker-pi-hole) |
 | Pi-hole + Unbound Guide | [docs.pi-hole.net/guides/dns/unbound](https://docs.pi-hole.net/guides/dns/unbound/) |
 | Community Forum | [discourse.pi-hole.net](https://discourse.pi-hole.net/) |
 
@@ -275,8 +282,8 @@ GitHub Actions (every 12h)
 |---|---|
 | Documentation | [unbound.docs.nlnetlabs.nl](https://unbound.docs.nlnetlabs.nl/) |
 | Configuration Reference | [unbound.conf man page](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html) |
+| Performance Tuning | [Performance Tuning Guide](https://unbound.docs.nlnetlabs.nl/en/latest/topics/core/performance.html) |
 | GitHub | [github.com/NLnetLabs/unbound](https://github.com/NLnetLabs/unbound) |
-| Troubleshooting | [Unbound Troubleshooting Guide](https://unbound.docs.nlnetlabs.nl/en/latest/getting-started/troubleshooting.html) |
 
 ### This Repository
 | Resource | Link |
