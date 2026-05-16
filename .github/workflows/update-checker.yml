@@ -47,17 +47,23 @@ jobs:
               echo "::warning::GitHub API returned non-array for ${repo}: ${msg}" >&2
               echo ""
               return 0
-            }
+            fi
 
-            echo "$response" | jq -r "map(select(
+            # 4-Layer stable-only filter:
+            #   1. .prerelease==false  — API flag set by maintainer
+            #   2. .draft==false       — not an unpublished draft
+            #   3. BLOCKLIST           — reject tags with known non-stable keywords
+            #   4. ALLOWLIST           — tag must be pure semver, date-based, OR release-X.Y.Z
+            #
+            # Accepts:  v1.2.3  |  1.2.3  |  2024.06.01  |  v2024.06.01  |  release-1.25.0
+            # Rejects:  v2.1.0-rc1  |  nightly-20240601  |  v1.0-hotfix  |  beta-2.0
+            echo "$response" | jq -r '
+              map(select(
                 .prerelease==false and
                 .draft==false and
-                # BLOCKLIST: known non-stable keywords in tag name
-                (.tag_name | test(\"(?i)(alpha|beta|rc|rh|test|dev|nightly|pre[.-]|snapshot|preview|unstable|canary|experimental)\") | not) and
-                # ALLOWLIST: tag must be clean semver or date-based version ONLY
-                # Accepts: v1.2.3  1.2.3  2024.06.01  v2024.06.01  (no suffixes allowed)
-                (.tag_name | test(\"^v?\\\\d+([.-]\\\\d+)*$\"))
-              )) | .[0].${field} // \"\""
+                (.tag_name | test("(?i)(alpha|beta|rc|rh|test|dev|nightly|pre[.\\-]|snapshot|preview|unstable|canary|experimental)") | not) and
+                (.tag_name | test("^(v?\\d+([.\\-]\\d+)*|release-\\d+(\\.\\d+)*)$"))
+              )) | .[0].'"${field}"' // ""'
           }
 
           # ── Pi-hole ───────────────────────────────────────────────────────────────
@@ -74,9 +80,9 @@ jobs:
           # ── Bail out gracefully if we couldn't resolve versions ───────────────────
           if [ -z "$PI_VERSION" ] || [ -z "$UNBOUND_VERSION" ]; then
             echo "::warning::One or more versions could not be resolved; skipping update."
-            echo "latest_pi=${PI_VERSION:-unknown}"     >> "$GITHUB_OUTPUT"
+            echo "latest_pi=${PI_VERSION:-unknown}"          >> "$GITHUB_OUTPUT"
             echo "latest_unbound=${UNBOUND_VERSION:-unknown}" >> "$GITHUB_OUTPUT"
-            echo "stable=false"                         >> "$GITHUB_OUTPUT"
+            echo "stable=false"                              >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -94,7 +100,7 @@ jobs:
           echo "Pi-hole age    : ${PI_AGE}s (threshold ${THRESHOLD}s)"
           echo "Unbound age    : ${UNBOUND_AGE}s (threshold ${THRESHOLD}s)"
 
-          echo "latest_pi=$PI_VERSION"         >> "$GITHUB_OUTPUT"
+          echo "latest_pi=$PI_VERSION"          >> "$GITHUB_OUTPUT"
           echo "latest_unbound=$UNBOUND_VERSION" >> "$GITHUB_OUTPUT"
 
           if [ "$PI_AGE" -gt "$THRESHOLD" ] || [ "$UNBOUND_AGE" -gt "$THRESHOLD" ]; then
@@ -108,7 +114,7 @@ jobs:
         run: |
           echo "PIHOLE_VERSION=${{ steps.check.outputs.latest_pi }}" > VERSION
           echo "UNBOUND_VERSION=${{ steps.check.outputs.latest_unbound }}" >> VERSION
-          
+
           if git diff --quiet; then
             echo "No new stable versions found."
           else
