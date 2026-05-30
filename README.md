@@ -261,6 +261,10 @@ GitHub Actions (every 12h)
 | `nightly-20240601` | ❌ Rejected | Blocklist: `nightly` keyword |
 | `vTestTag` | ❌ Rejected | Allowlist: non-numeric content |
 
+> [!NOTE]
+> **Complete Blocklist (Case-Insensitive)**:
+> `alpha`, `beta`, `rc`, `rh`, `test`, `dev`, `devel`, `development`, `debug`, `nightly`, `pre-`, `pre.`, `snapshot`, `preview`, `unstable`, `canary`, `experimental`, `edge`, `next`, `insiders`, `temp`, `tmp`
+
 ### Infrastructure Details
 
 | Component | Detail |
