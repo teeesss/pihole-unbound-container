@@ -25,6 +25,7 @@ RUN cd /tmp && \
         --localstatedir=/var \
         --with-conf-file=/etc/unbound/unbound.conf \
         --with-run-dir=/var/run/unbound \
+        --with-chrootdir="" \
         --with-username=unbound \
         --with-ssl \
         --with-libevent && \
