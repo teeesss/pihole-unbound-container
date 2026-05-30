@@ -177,10 +177,7 @@ jobs:
             git push origin "$TAG_NAME"
 
             # Create GitHub Release with direct upstream release links
-            RELEASE_NOTES="### Upstream Release Information
-
-- **Pi-hole (docker-pi-hole)**: [Release $PI_VER](https://github.com/pi-hole/docker-pi-hole/releases/tag/$PI_VER)
-- **Unbound**: [Release $UNBOUND_VER](https://github.com/NLnetLabs/unbound/releases/tag/$UNBOUND_VER)"
+            RELEASE_NOTES=$(printf "### Upstream Release Information\n\n- **Pi-hole (docker-pi-hole)**: [Release %s](https://github.com/pi-hole/docker-pi-hole/releases/tag/%s)\n- **Unbound**: [Release %s](https://github.com/NLnetLabs/unbound/releases/tag/%s)" "$PI_VER" "$PI_VER" "$UNBOUND_VER" "$UNBOUND_VER")
 
             gh release create "$TAG_NAME" --title "Release $TAG_NAME" --notes "$RELEASE_NOTES"
           fi
