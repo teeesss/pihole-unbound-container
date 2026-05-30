@@ -15,7 +15,7 @@ A **single-container**, self-updating solution pairing [Pi-hole](https://pi-hole
 This container runs two services side-by-side in a single Docker image:
 
 - **Pi-hole** — a DNS sinkhole that blocks ads and trackers at the network level for every device on your network.
-- **Unbound** — a validating, recursive DNS resolver that queries authoritative DNS servers directly instead of forwarding to a third-party provider like Google (`8.8.8.8`) or Cloudflare (`1.1.1.1`).
+- **Unbound** — a validating, recursive DNS resolver. Compiled dynamically from source in a multi-stage Docker build to match the exact pinned version, rather than relying on stale distribution packages. It queries authoritative DNS servers directly instead of forwarding to a third-party provider like Google (`8.8.8.8`) or Cloudflare (`1.1.1.1`).
 
 Together they give you **ad-blocking**, **DNSSEC validation**, and **DNS privacy** — no third-party resolver ever sees your query history.
 
@@ -261,7 +261,7 @@ GitHub Actions (every 12h)
 | **API Fallback** | Docker Hub Registry API if GitHub API is unreachable |
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
 | **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
-| **Multi-Arch** | `linux/amd64`, `linux/arm64`, `linux/arm/v7` |
+| **Multi-Arch** | `linux/amd64`, `linux/arm64` (emulated `linux/arm/v7` dropped to speed up build pipeline) |
 | **Build Trigger** | Changes to `VERSION`, `docker/`, or the workflow file itself |
 | **Layer Cache** | GitHub Actions cache (`type=gha`) for fast multi-arch rebuilds |
 
