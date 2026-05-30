@@ -122,16 +122,31 @@ jobs:
           # 3-Day Buffer check
           THRESHOLD=259200
           NOW=$(date -u +%s)
-          PI_AGE=$(( NOW - $(date -d "$PI_DATE" +%s 2>/dev/null || echo "$NOW") ))
-          UNBOUND_AGE=$(( NOW - $(date -d "$UNBOUND_DATE" +%s 2>/dev/null || echo "$NOW") ))
+
+          PI_STABLE=true
+          if [ "$PI_VERSION" != "$CURR_PI" ]; then
+            PI_AGE=$(( NOW - $(date -d "$PI_DATE" +%s 2>/dev/null || echo "$NOW") ))
+            if [ "$PI_AGE" -lt "$THRESHOLD" ]; then
+              PI_STABLE=false
+              echo "::notice::Pi-hole version $PI_VERSION is too new (age $((PI_AGE/3600))h < 72h)"
+            fi
+          fi
+
+          UNBOUND_STABLE=true
+          if [ "$UNBOUND_VERSION" != "$CURR_UNBOUND" ]; then
+            UNBOUND_AGE=$(( NOW - $(date -d "$UNBOUND_DATE" +%s 2>/dev/null || echo "$NOW") ))
+            if [ "$UNBOUND_AGE" -lt "$THRESHOLD" ]; then
+              UNBOUND_STABLE=false
+              echo "::notice::Unbound version $UNBOUND_VERSION is too new (age $((UNBOUND_AGE/3600))h < 72h)"
+            fi
+          fi
 
           echo "latest_pi=$PI_VERSION" >> "$GITHUB_OUTPUT"
           echo "latest_unbound=$UNBOUND_VERSION" >> "$GITHUB_OUTPUT"
 
-          if [ "$PI_AGE" -ge "$THRESHOLD" ] && [ "$UNBOUND_AGE" -ge "$THRESHOLD" ]; then
+          if [ "$PI_STABLE" = "true" ] && [ "$UNBOUND_STABLE" = "true" ]; then
             echo "stable=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::Stable versions found but 3-day buffer not yet met."
             echo "stable=false" >> "$GITHUB_OUTPUT"
           fi
 

@@ -54,6 +54,43 @@ jobs:
             type=raw,value=latest
             type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}
 
+      - name: Build Local Test Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker
+          load: true
+          build-args: |
+            PIHOLE_VERSION=${{ steps.get_version.outputs.PIHOLE_VERSION }}
+            UNBOUND_VERSION=${{ steps.get_version.outputs.UNBOUND_VERSION }}
+          tags: pihole-unbound:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Integration Tests
+        run: |
+          docker run -d --name pihole-test -p 8088:80 -p 5335:5335/udp -e FTLCONF_dns_upstreams="127.0.0.1#5335" pihole-unbound:test
+          
+          echo "Waiting for Pi-hole and Unbound to start..."
+          success=false
+          for i in {1..15}; do
+            if docker exec pihole-test unbound-checkconf /etc/unbound/unbound.conf && \
+               docker exec pihole-test unbound -V && \
+               docker exec pihole-test nslookup -port=5335 google.com 127.0.0.1 >/dev/null 2>&1; then
+              echo "Unbound DNS resolution check passed!"
+              success=true
+              break
+            fi
+            sleep 2
+          done
+          
+          docker stop pihole-test || true
+          docker rm pihole-test || true
+          
+          if [ "$success" = "false" ]; then
+            echo "Error: Unbound integration check failed!"
+            exit 1
+          fi
+
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
