@@ -2,10 +2,8 @@ name: Build and Publish
 
 on:
   push:
-    paths:
-      - 'VERSION'
-      - 'docker/**'
-      - '.github/workflows/docker-publish.yml'
+    tags:
+      - '20*'
   workflow_dispatch: # Allow manual build
 
 env:
@@ -54,8 +52,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
+            type=ref,event=tag
             type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}
-            type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}-${{ steps.get_version.outputs.UNBOUND_VERSION_CLEAN }}
 
       - name: Build Local Test Image
         uses: docker/build-push-action@v5

@@ -152,16 +152,30 @@ jobs:
 
       - name: Update Version File
         if: steps.check.outputs.stable == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "PIHOLE_VERSION=${{ steps.check.outputs.latest_pi }}" > VERSION
-          echo "UNBOUND_VERSION=${{ steps.check.outputs.latest_unbound }}" >> VERSION
+          PI_VER="${{ steps.check.outputs.latest_pi }}"
+          UNBOUND_VER="${{ steps.check.outputs.latest_unbound }}"
+          echo "PIHOLE_VERSION=$PI_VER" > VERSION
+          echo "UNBOUND_VERSION=$UNBOUND_VER" >> VERSION
 
           if git diff --quiet; then
             echo "Versions are already current."
           else
+            UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
+            TAG_NAME="${PI_VER}-${UNBOUND_VER_CLEAN}"
+
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
             git add VERSION
-            git commit -m "chore: update upstream versions to Pi-hole ${{ steps.check.outputs.latest_pi }} and Unbound ${{ steps.check.outputs.latest_unbound }}"
+            git commit -m "chore: update upstream versions to Pi-hole $PI_VER and Unbound $UNBOUND_VER"
             git push
+
+            # Create and push Git Tag
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+
+            # Create GitHub Release
+            gh release create "$TAG_NAME" --title "Release $TAG_NAME" --generate-notes
           fi
