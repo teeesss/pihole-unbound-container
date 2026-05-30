@@ -263,7 +263,7 @@ GitHub Actions (every 12h)
 
 > [!NOTE]
 > **Complete Blocklist (Case-Insensitive)**:
-> `alpha`, `beta`, `rc`, `rh`, `test`, `dev`, `devel`, `development`, `debug`, `nightly`, `pre-`, `pre.`, `snapshot`, `preview`, `unstable`, `canary`, `experimental`, `edge`, `next`, `insiders`, `temp`, `tmp`
+> `alpha`, `beta`, `canary`, `debug`, `dev`, `devel`, `development`, `edge`, `experimental`, `insiders`, `next`, `nightly`, `pre-`, `pre.`, `preview`, `rc`, `rh`, `snapshot`, `temp`, `test`, `tmp`, `unstable`
 
 ### Infrastructure Details
 

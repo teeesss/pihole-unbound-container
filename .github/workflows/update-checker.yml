@@ -57,7 +57,7 @@ jobs:
               map(select(
                 .prerelease==false and
                 .draft==false and
-                (.tag_name | test("(?i)(alpha|beta|rc|rh|test|dev|devel|development|debug|nightly|pre[.\\-]|snapshot|preview|unstable|canary|experimental|edge|next|insiders|temp|tmp)") | not) and
+                (.tag_name | test("(?i)(alpha|beta|canary|debug|dev|devel|development|edge|experimental|insiders|next|nightly|pre[.\\-]|preview|rc|rh|snapshot|temp|test|tmp|unstable)") | not) and
                 (.tag_name | test("^(v?\\d+([.\\-]\\d+)*|release-\\d+(\\.\\d+)*)$"))
               )) | .[0].'"${field}"' // ""'
           }
@@ -74,7 +74,7 @@ jobs:
               .results[].name | 
               select(
                 test("^(v?\\d+([.\\-]\\d+)*)$") and 
-                (test("(?i)(alpha|beta|rc|rh|test|dev|devel|development|debug|nightly|pre[.\\-]|snapshot|preview|unstable|canary|experimental|edge|next|insiders|temp|tmp)") | not)
+                (test("(?i)(alpha|beta|canary|debug|dev|devel|development|edge|experimental|insiders|next|nightly|pre[.\\-]|preview|rc|rh|snapshot|temp|test|tmp|unstable)") | not)
               )' | sort -V | tail -n1
           }
 
