@@ -52,7 +52,7 @@ COPY --from=builder /usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
 
 # Create unbound user, group, and directories if they don't exist
 RUN getent group unbound || addgroup -S unbound && \
-    getent passwd unbound || adduser -S -G unbound -d /var/run/unbound -s /sbin/nologin unbound && \
+    getent passwd unbound || adduser -S -G unbound -h /var/run/unbound -s /sbin/nologin -D unbound && \
     mkdir -p /var/run/unbound /etc/unbound /etc/unbound/unbound.conf.d && \
     echo 'include: "/etc/unbound/unbound.conf.d/*.conf"' > /etc/unbound/unbound.conf && \
     chown -R unbound:unbound /var/run/unbound /etc/unbound
