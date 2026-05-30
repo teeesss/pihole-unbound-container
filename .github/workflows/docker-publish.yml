@@ -29,8 +29,10 @@ jobs:
         run: |
           PI_VER=$(grep PIHOLE_VERSION VERSION | cut -d'=' -f2 || echo "latest")
           UNBOUND_VER=$(grep UNBOUND_VERSION VERSION | cut -d'=' -f2 || echo "latest")
+          UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
           echo "PIHOLE_VERSION=$PI_VER" >> $GITHUB_OUTPUT
           echo "UNBOUND_VERSION=$UNBOUND_VER" >> $GITHUB_OUTPUT
+          echo "UNBOUND_VERSION_CLEAN=$UNBOUND_VER_CLEAN" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -53,6 +55,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}
+            type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}-${{ steps.get_version.outputs.UNBOUND_VERSION_CLEAN }}
 
       - name: Build Local Test Image
         uses: docker/build-push-action@v5
