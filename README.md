@@ -212,7 +212,7 @@ docker compose up -d --force-recreate
 
 ## 🤖 Automation Architecture
 
-This repository is **fully autonomous** — no manual intervention needed. The pipeline checks for new stable releases every 12 hours and rebuilds the container image when versions change.
+This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound every 12 hours. If a new version of either package is detected and satisfies its stability requirements, an update is triggered, and compatibility is verified before release.
 
 ### Update Pipeline
 
@@ -223,21 +223,27 @@ GitHub Actions (every 12h)
   fetch_release() ─── GitHub API (authenticated, 5000 req/hr)
          │              └── Docker Hub API (fallback)
          ▼
-  ┌─ 4-Layer Stability Filter ─────────────────────────┐
-  │  Layer 1: .prerelease == false     (API flag)       │
-  │  Layer 2: .draft == false          (API flag)       │
-  │  Layer 3: Tag Blocklist            (alpha/beta/rc…) │
-  │  Layer 4: Tag Allowlist            (semver only)    │
+  ┌─ Decoupled 3-Day Stability Buffer ──────────────────┐
+  │  Updates either package independently. Only checks  │
+  │  age buffer (72h) for the component being updated.  │
   └─────────────────────────────────────────────────────┘
-         │
-         ▼
-  3-Day Stability Buffer (waits 72h for community testing)
          │
          ▼
   Downgrade Guard (sort -V rejects older versions)
          │
          ▼
-  VERSION file updated → Docker build triggered → pushed to GHCR
+  VERSION file updated → Docker build triggered
+         │
+         ▼
+  ┌─ Compatibility & Integration Testing Guard ─────────┐
+  │  1. Spin up built container image locally in runner │
+  │  2. Run unbound-checkconf to verify configurations   │
+  │  3. Verify compiled Unbound version matches target  │
+  │  4. Perform recursive DNS query resolving google.com│
+  └─────────────────────────────────────────────────────┘
+         │
+         ▼
+  Image published to GHCR (safe, compatibility-verified)
 ```
 
 ### Tag Filtering Examples
