@@ -179,6 +179,9 @@ cap_add:
 
 All versioned images are published to the [GitHub Container Registry](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container). 
 
+> [!NOTE]
+> Pi-hole versions follow the date-based tags of the official [pi-hole/docker-pi-hole releases](https://github.com/pi-hole/docker-pi-hole/releases) (e.g., `2026.05.0`), not the core Pi-hole application version (e.g., `v6.4.2`). Unbound versions follow the official [NLnetLabs/unbound tags](https://github.com/NLnetLabs/unbound/tags) (e.g. `1.25.1`).
+
 Following container best practices, images are tagged with both upstream versions combined (`[PIHOLE_VERSION]-[UNBOUND_VERSION]`) to guarantee immutable, reproducible deployments.
 
 To pin to a specific version:
