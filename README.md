@@ -175,15 +175,17 @@ cap_add:
 
 ---
 
-## ⏪ Rollback
+## ⏪ Rollback & Version Pinning
 
-All versioned images are published to the [GitHub Container Registry](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container). Image tags mirror the upstream **Pi-hole version** (e.g., `2026.05.0`).
+All versioned images are published to the [GitHub Container Registry](https://github.com/teeesss/pihole-unbound-container/pkgs/container/pihole-unbound-container). 
+
+Following container best practices, images are tagged with both upstream versions combined (`[PIHOLE_VERSION]-[UNBOUND_VERSION]`) to guarantee immutable, reproducible deployments.
 
 To pin to a specific version:
 
 ```yaml
 # In your docker-compose.yml
-image: ghcr.io/teeesss/pihole-unbound-container:2026.05.0
+image: ghcr.io/teeesss/pihole-unbound-container:2026.05.0-1.25.1
 ```
 
 Then recreate the container:
