@@ -76,8 +76,9 @@ jobs:
           for i in {1..15}; do
             if docker exec pihole-test unbound-checkconf /etc/unbound/unbound.conf && \
                docker exec pihole-test unbound -V && \
-               docker exec pihole-test nslookup -port=5335 google.com 127.0.0.1 >/dev/null 2>&1; then
-              echo "Unbound DNS resolution check passed!"
+               docker exec pihole-test nslookup -port=5335 google.com 127.0.0.1 >/dev/null 2>&1 && \
+               docker exec pihole-test nslookup google.com 127.0.0.1 >/dev/null 2>&1; then
+              echo "Pi-hole and Unbound integration check passed!"
               success=true
               break
             fi
@@ -88,7 +89,7 @@ jobs:
           docker rm pihole-test || true
           
           if [ "$success" = "false" ]; then
-            echo "Error: Unbound integration check failed!"
+            echo "Error: Pi-hole & Unbound compatibility check failed!"
             exit 1
           fi
 
