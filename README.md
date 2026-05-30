@@ -241,7 +241,8 @@ GitHub Actions (every 12h)
   │  1. Spin up built container image locally in runner │
   │  2. Run unbound-checkconf to verify configurations   │
   │  3. Verify compiled Unbound version matches target  │
-  │  4. Perform recursive DNS query resolving google.com│
+  │  4. Query Pi-hole (port 53) to verify end-to-end    │
+  │     recursive resolution via Unbound (port 5335)    │
   └─────────────────────────────────────────────────────┘
          │
          ▼
