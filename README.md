@@ -237,7 +237,7 @@ GitHub Actions (every 12h)
   Downgrade Guard (sort -V rejects older versions)
          │
          ▼
-  VERSION file updated → Git Tag & GitHub Release created → Tag Push triggers build
+  VERSION file updated → Git Tag & GitHub Release created → Triggers reusable build workflow
          │
          ▼
   ┌─ Compatibility & Integration Testing Guard ─────────┐
@@ -278,7 +278,7 @@ GitHub Actions (every 12h)
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
 | **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
 | **Multi-Arch** | `linux/amd64`, `linux/arm64` (emulated `linux/arm/v7` dropped to speed up build pipeline) |
-| **Build Trigger** | Pushes to Git Tags matching `20*` (e.g. `2026.05.0-1.25.1`) |
+| **Build Trigger** | Pushes to Git Tags matching `20*`, manual dispatch, or reusable workflow call from `update-checker` |
 | **Layer Cache** | GitHub Actions cache (`type=gha`) for fast multi-arch rebuilds |
 
 ---
