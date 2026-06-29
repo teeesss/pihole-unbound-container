@@ -190,7 +190,7 @@ jobs:
   build-and-publish:
     needs: check-versions
     if: needs.check-versions.outputs.updated == 'true'
-    uses: ./.github/workflows/docker-publish.yml@master
+    uses: ./.github/workflows/docker-publish.yml
     permissions:
       contents: read
       packages: write
