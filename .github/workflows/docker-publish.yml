@@ -5,6 +5,7 @@ on:
     tags:
       - '20*'
   workflow_dispatch: # Allow manual build
+  workflow_call:     # Allow reusable workflow calls
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -53,6 +54,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=ref,event=tag
+            type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}-${{ steps.get_version.outputs.UNBOUND_VERSION_CLEAN }}
             type=raw,value=${{ steps.get_version.outputs.PIHOLE_VERSION }}
 
       - name: Build Local Test Image

@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      updated: ${{ steps.update_file.outputs.updated }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -151,6 +153,7 @@ jobs:
           fi
 
       - name: Update Version File
+        id: update_file
         if: steps.check.outputs.stable == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,6 +165,7 @@ jobs:
 
           if git diff --quiet; then
             echo "Versions are already current."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
           else
             UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
             TAG_NAME="${PI_VER}-${UNBOUND_VER_CLEAN}"
@@ -180,4 +184,13 @@ jobs:
             RELEASE_NOTES=$(printf "### Upstream Release Information\n\n- **Pi-hole (docker-pi-hole)**: [Release %s](https://github.com/pi-hole/docker-pi-hole/releases/tag/%s)\n- **Unbound**: [Release %s](https://github.com/NLnetLabs/unbound/releases/tag/%s)" "$PI_VER" "$PI_VER" "$UNBOUND_VER" "$UNBOUND_VER")
 
             gh release create "$TAG_NAME" --title "Release $TAG_NAME" --notes "$RELEASE_NOTES"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
           fi
+
+  build-and-publish:
+    needs: check-versions
+    if: needs.check-versions.outputs.updated == 'true'
+    uses: ./.github/workflows/docker-publish.yml@master
+    permissions:
+      contents: read
+      packages: write
