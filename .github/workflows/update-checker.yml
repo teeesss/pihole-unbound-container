@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write # some versions/configurations of GitHub CLI need PR permissions for release creation
     outputs:
       updated: ${{ steps.update_file.outputs.updated }}
     steps:
