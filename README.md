@@ -217,7 +217,7 @@ docker compose up -d --force-recreate
 
 ## 🤖 Automation Architecture
 
-This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected and satisfies its stability requirements, an update is triggered, and compatibility is verified before release.
+This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected and satisfies its stability requirements (enforcing a mandatory 72-hour community testing buffer), an update is triggered, and compatibility is verified before release.
 
 ### Update Pipeline
 
