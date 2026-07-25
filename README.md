@@ -217,12 +217,12 @@ docker compose up -d --force-recreate
 
 ## 🤖 Automation Architecture
 
-This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound every 12 hours. If a new version of either package is detected and satisfies its stability requirements, an update is triggered, and compatibility is verified before release.
+This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected and satisfies its stability requirements, an update is triggered, and compatibility is verified before release.
 
 ### Update Pipeline
 
 ```
-GitHub Actions (every 12h)
+GitHub Actions (hourly)
          │
          ▼
   fetch_release() ─── GitHub API (authenticated, 5000 req/hr)
@@ -272,7 +272,7 @@ GitHub Actions (every 12h)
 
 | Component | Detail |
 |---|---|
-| **Update Frequency** | Every 12 hours via GitHub Actions cron |
+| **Update Frequency** | Hourly via GitHub Actions cron |
 | **API Authentication** | `GITHUB_TOKEN` (auto-provided by GitHub, 5,000 req/hr) |
 | **API Fallback** | Docker Hub Registry API if GitHub API is unreachable |
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
