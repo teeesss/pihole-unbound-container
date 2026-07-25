@@ -149,8 +149,42 @@ jobs:
 
           if [ "$PI_STABLE" = "true" ] && [ "$UNBOUND_STABLE" = "true" ]; then
             echo "stable=true" >> "$GITHUB_OUTPUT"
+            echo "pending_count=0" >> "$GITHUB_OUTPUT"
           else
             echo "stable=false" >> "$GITHUB_OUTPUT"
+            
+            # Generate PENDING_RELEASES.md content
+            {
+              echo "# Pending Releases (72-Hour Cooling Buffer)"
+              echo ""
+              echo "The following upstream release(s) have been detected but are currently undergoing mandatory 72-hour community testing before automated container builds trigger:"
+              echo ""
+              echo "| Component | Target Version | Upstream Released | Current Age | Status |"
+              echo "| :--- | :--- | :--- | :--- | :--- |"
+              if [ "$PI_STABLE" = "false" ]; then
+                PI_REM=$(( (THRESHOLD - PI_AGE) / 3600 ))
+                echo "| Pi-hole | \`$PI_VERSION\` | $PI_DATE | $((PI_AGE/3600))h | ⏳ Cooling down (~${PI_REM}h remaining) |"
+              fi
+              if [ "$UNBOUND_STABLE" = "false" ]; then
+                UNBOUND_REM=$(( (THRESHOLD - UNBOUND_AGE) / 3600 ))
+                echo "| Unbound | \`$UNBOUND_VERSION\` | $UNBOUND_DATE | $((UNBOUND_AGE/3600))h | ⏳ Cooling down (~${UNBOUND_REM}h remaining) |"
+              fi
+              echo ""
+              echo "_Last checked: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
+            } > PENDING_RELEASES.md
+
+            echo "pending_count=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update Pending Status File
+        if: steps.check.outputs.stable == 'false'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add PENDING_RELEASES.md
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: update PENDING_RELEASES.md status"
+            git push
           fi
 
       - name: Update Version File
@@ -164,6 +198,9 @@ jobs:
           echo "PIHOLE_VERSION=$PI_VER" > VERSION
           echo "UNBOUND_VERSION=$UNBOUND_VER" >> VERSION
 
+          # Remove PENDING_RELEASES.md once release is promoted
+          rm -f PENDING_RELEASES.md
+
           if git diff --quiet; then
             echo "Versions are already current."
             echo "updated=false" >> "$GITHUB_OUTPUT"
@@ -174,6 +211,7 @@ jobs:
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
             git add VERSION
+            git rm --ignore-unmatch PENDING_RELEASES.md
             git commit -m "chore: update upstream versions to Pi-hole $PI_VER and Unbound $UNBOUND_VER"
             git push
 
