@@ -4,6 +4,6 @@ The following upstream release(s) have been detected but are currently undergoin
 
 | Component | Target Version | Upstream Released | Current Age | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| Unbound | `release-1.26.0` | 2026-08-04T08:00:13Z | 16h | ⏳ Cooling down (~55h remaining) |
+| Unbound | `release-1.26.0` | 2026-08-04T08:00:13Z | 20h | ⏳ Cooling down (~51h remaining) |
 
-_Last checked: 2026-08-05 00:00:15 UTC_
+_Last checked: 2026-08-05 04:07:14 UTC_
