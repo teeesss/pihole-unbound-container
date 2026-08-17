@@ -274,7 +274,7 @@ GitHub Actions (hourly)
 |---|---|
 | **Update Frequency** | Hourly via GitHub Actions cron |
 | **API Authentication** | `GITHUB_TOKEN` (auto-provided by GitHub, 5,000 req/hr) |
-| **API Fallback** | Docker Hub Registry API if GitHub API is unreachable |
+| **API Fallback** | Multi-source resolution: GitHub Releases, GitHub Tags API (`/tags` + commit dates), and Docker Hub Registry API |
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
 | **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
 | **Multi-Arch** | `linux/amd64`, `linux/arm64` (emulated `linux/arm/v7` dropped to speed up build pipeline) |

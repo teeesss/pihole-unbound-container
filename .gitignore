@@ -2,7 +2,10 @@
 TASKS.md
 PROJECT_STATUS.md
 CLAUDE.md
+GEMINI.md
 knowledge.md
+.credentials
+
 
 # Local Deployment (STAYS LOCAL ONLY)
 local-deploy/
