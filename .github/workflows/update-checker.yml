@@ -65,6 +65,44 @@ jobs:
               )) | .[0].'"${field}"' // ""'
           }
 
+          # ── Helper: fetch from GitHub Tags (for repos without GitHub Releases) ──
+          get_github_tag() {
+            local repo="$1"
+            local response
+            
+            response=$(fetch_url "https://api.github.com/repos/${repo}/tags?per_page=30" \
+              "Authorization: Bearer ${GH_TOKEN}" \
+              "Accept: application/vnd.github+json" \
+              "X-GitHub-Api-Version: 2022-11-28") || return 1
+
+            if ! echo "$response" | jq -e 'type == "array"' > /dev/null 2>&1; then
+              return 1
+            fi
+
+            # Filter tags matching standard stable version schemes
+            echo "$response" | jq -r '
+              [ .[].name |
+                select(
+                  (test("(?i)(alpha|beta|canary|debug|dev|devel|development|edge|experimental|insiders|next|nightly|pre[.\\-]|preview|rc|rh|snapshot|temp|test|tmp|unstable)") | not) and
+                  test("^(v?\\d+([.\\-]\\d+)*|release-\\d+(\\.\\d+)*)$")
+                )
+              ] | .[0] // ""'
+          }
+
+          # ── Helper: fetch commit date from GitHub Ref/Tag ────────────────────────
+          get_github_commit_date() {
+            local repo="$1"
+            local ref="$2"
+            local response
+            
+            response=$(fetch_url "https://api.github.com/repos/${repo}/commits/${ref}" \
+              "Authorization: Bearer ${GH_TOKEN}" \
+              "Accept: application/vnd.github+json" \
+              "X-GitHub-Api-Version: 2022-11-28") || return 1
+
+            echo "$response" | jq -r '.commit.committer.date // .commit.author.date // ""'
+          }
+
           # ── Fallback: fetch from Docker Hub (for Pi-hole) ────────────────────────
           get_dockerhub_tag() {
             local repo="$1"
@@ -85,18 +123,38 @@ jobs:
           is_downgrade() {
             local current="$1"
             local new="$2"
-            [ "$(echo -e "$current\n$new" | sort -V | head -n1)" == "$new" ] && [ "$current" != "$new" ]
+            [ "$(printf '%s\n%s\n' "$current" "$new" | sort -V | head -n1)" = "$new" ] && [ "$current" != "$new" ]
           }
 
           # ── Execution ────────────────────────────────────────────────────────────
           
           # 1. Resolve Pi-hole
-          PI_VERSION=$(get_github_release "pi-hole/docker-pi-hole" "tag_name" || get_dockerhub_tag "pihole/pihole")
-          PI_DATE=$(get_github_release "pi-hole/docker-pi-hole" "published_at" || date -u +%Y-%m-%dT%H:%M:%SZ) # fallback to now if date missing
+          PI_VERSION=$(get_github_release "pi-hole/docker-pi-hole" "tag_name" 2>/dev/null || true)
+          if [ -z "$PI_VERSION" ]; then
+            PI_VERSION=$(get_dockerhub_tag "pihole/pihole" 2>/dev/null || true)
+          fi
+
+          PI_DATE=$(get_github_release "pi-hole/docker-pi-hole" "published_at" 2>/dev/null || true)
+          if [ -z "$PI_DATE" ] && [ -n "$PI_VERSION" ]; then
+            PI_DATE=$(get_github_commit_date "pi-hole/docker-pi-hole" "$PI_VERSION" 2>/dev/null || true)
+          fi
+          if [ -z "$PI_DATE" ]; then
+            PI_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          fi
           
           # 2. Resolve Unbound
-          UNBOUND_VERSION=$(get_github_release "NLnetLabs/unbound" "tag_name" || echo "")
-          UNBOUND_DATE=$(get_github_release "NLnetLabs/unbound" "published_at" || date -u +%Y-%m-%dT%H:%M:%SZ)
+          UNBOUND_VERSION=$(get_github_release "NLnetLabs/unbound" "tag_name" 2>/dev/null || true)
+          if [ -z "$UNBOUND_VERSION" ]; then
+            UNBOUND_VERSION=$(get_github_tag "NLnetLabs/unbound" 2>/dev/null || true)
+          fi
+
+          UNBOUND_DATE=$(get_github_release "NLnetLabs/unbound" "published_at" 2>/dev/null || true)
+          if [ -z "$UNBOUND_DATE" ] && [ -n "$UNBOUND_VERSION" ]; then
+            UNBOUND_DATE=$(get_github_commit_date "NLnetLabs/unbound" "$UNBOUND_VERSION" 2>/dev/null || true)
+          fi
+          if [ -z "$UNBOUND_DATE" ]; then
+            UNBOUND_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          fi
 
           echo "Pi-hole candidate  : ${PI_VERSION:-<unknown>} (${PI_DATE:-?})"
           echo "Unbound candidate  : ${UNBOUND_VERSION:-<unknown>} (${UNBOUND_DATE:-?})"
@@ -108,7 +166,8 @@ jobs:
           # Bail if resolution failed
           if [ -z "$PI_VERSION" ] || [ -z "$UNBOUND_VERSION" ]; then
             echo "::warning::Resolution failed; skipping."
-            echo "stable=false" >> "$GITHUB_OUTPUT"
+            echo "stable=skip" >> "$GITHUB_OUTPUT"
+            echo "pending=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -149,9 +208,10 @@ jobs:
 
           if [ "$PI_STABLE" = "true" ] && [ "$UNBOUND_STABLE" = "true" ]; then
             echo "stable=true" >> "$GITHUB_OUTPUT"
-            echo "pending_count=0" >> "$GITHUB_OUTPUT"
+            echo "pending=false" >> "$GITHUB_OUTPUT"
           else
             echo "stable=false" >> "$GITHUB_OUTPUT"
+            echo "pending=true" >> "$GITHUB_OUTPUT"
             
             # Generate PENDING_RELEASES.md content
             {
@@ -172,19 +232,20 @@ jobs:
               echo ""
               echo "_Last checked: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
             } > PENDING_RELEASES.md
-
-            echo "pending_count=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update Pending Status File
-        if: steps.check.outputs.stable == 'false'
+        if: steps.check.outputs.pending == 'true'
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add PENDING_RELEASES.md
-          if ! git diff --cached --quiet; then
-            git commit -m "docs: update PENDING_RELEASES.md status"
-            git push
+          if [ -f PENDING_RELEASES.md ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add PENDING_RELEASES.md
+            if ! git diff --cached --quiet; then
+              git pull --rebase origin master || true
+              git commit -m "docs: update PENDING_RELEASES.md status"
+              git push
+            fi
           fi
 
       - name: Update Version File
@@ -201,9 +262,19 @@ jobs:
           # Remove PENDING_RELEASES.md once release is promoted
           rm -f PENDING_RELEASES.md
 
-          if git diff --quiet; then
+          if git diff --quiet VERSION; then
             echo "Versions are already current."
             echo "updated=false" >> "$GITHUB_OUTPUT"
+
+            # Clean up pending file if it was still tracked in git
+            if [ -n "$(git status --porcelain PENDING_RELEASES.md 2>/dev/null)" ]; then
+              git config --local user.email "action@github.com"
+              git config --local user.name "GitHub Action"
+              git rm --ignore-unmatch PENDING_RELEASES.md
+              git pull --rebase origin master || true
+              git commit -m "docs: remove resolved PENDING_RELEASES.md"
+              git push
+            fi
           else
             UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
             TAG_NAME="${PI_VER}-${UNBOUND_VER_CLEAN}"
@@ -212,6 +283,7 @@ jobs:
             git config --local user.name "GitHub Action"
             git add VERSION
             git rm --ignore-unmatch PENDING_RELEASES.md
+            git pull --rebase origin master || true
             git commit -m "chore: update upstream versions to Pi-hole $PI_VER and Unbound $UNBOUND_VER"
             git push
 
