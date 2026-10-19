@@ -4,6 +4,6 @@ The following upstream release(s) have been detected but are currently undergoin
 
 | Component | Target Version | Upstream Released | Current Age | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| Pi-hole | `2026.10.0` | 2026-10-17T11:54:39Z | 36h | ⏳ Cooling down (~35h remaining) |
+| Pi-hole | `2026.10.0` | 2026-10-17T11:54:39Z | 41h | ⏳ Cooling down (~30h remaining) |
 
-_Last checked: 2026-10-19 00:48:24 UTC_
+_Last checked: 2026-10-19 05:43:44 UTC_
