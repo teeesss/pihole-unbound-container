@@ -53,6 +53,12 @@ services:
       - './etc-pihole:/etc/pihole'           # Persistent Pi-hole config
       - './etc-dnsmasq.d:/etc/dnsmasq.d'     # Persistent dnsmasq config
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "dig @127.0.0.1 -p 5335 google.com +short && dig @127.0.0.1 google.com +short || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 ```
 
 > [!WARNING]
@@ -188,7 +194,7 @@ To pin to a specific version:
 
 ```yaml
 # In your docker-compose.yml
-image: ghcr.io/teeesss/pihole-unbound-container:2026.05.0-1.25.1
+image: ghcr.io/teeesss/pihole-unbound-container:2026.10.0-1.26.2
 ```
 
 Then recreate the container:
@@ -217,25 +223,35 @@ docker compose up -d --force-recreate
 
 ## 🤖 Automation Architecture
 
-This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected, an adaptive security evaluation classifies the release:
-- **Critical Security / CVE Fast-Track**: 12-hour cooling buffer (triggers on CVEs, RCE, DoS, DNSSEC bypass, memory corruption, zero-day advisories).
-- **Standard Baseline**: 24-hour cooling buffer for routine feature and bugfix releases.
-- **Manual Fast-Track**: `workflow_dispatch` trigger with `force_immediate: true` for 0-hour instant emergency releases.
+This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected, an adaptive security evaluation classifies the release and applies an appropriate cooling buffer before automated promotion.
+
+### Release Timelines & Buffers
+
+| Tier | Window | Trigger Criteria | Target Scenario |
+|---|---|---|---|
+| 🚨 **Security Fast-Track** | **12 Hours** | Upstream release notes or git commit messages contain CVE IDs (`CVE-\d{4}-\d+`) or critical keywords: `critical`, `security vulnerability`, `remote code execution`, `rce`, `denial of service`, `dos`, `dnssec bypass`, `cache poisoning`, `buffer overflow`, `memory corruption`, `zero-day` | Active vulnerability patches (e.g. Unbound `1.26.2` fixing `CVE-2026-35501`) |
+| ⏱️ **Standard Baseline** | **24 Hours** | Normal feature, maintenance, or non-critical bugfix releases without security flags | Routine upstream updates; allows 24h for upstream community bug detection |
+| ⚡ **Emergency Bypass** | **0 Hours** | Manual workflow dispatch (`force_immediate: true`) or custom `override_buffer_hours` | Zero-day immediate deployment without waiting for cooling buffers |
+
+> [!TIP]
+> **Decoupled Promotion**: Pi-hole and Unbound version lifecycles are evaluated independently. If one component is currently cooling, the other is never blocked and promotes immediately when its own cooling window clears.
 
 ### Update Pipeline
 
 ```
-GitHub Actions (hourly)
+GitHub Actions (hourly cron: 0 * * * *)
          │
          ▼
-  fetch_release() ─── GitHub API (authenticated, 5000 req/hr)
-         │              └── Docker Hub API (fallback)
+  fetch_release() ─── GitHub Releases API (Pi-hole)
+         │        ─── GitHub Tags + Commit API (Unbound)
+         │              └── Docker Hub Registry API (fallback)
          ▼
-  ┌─ Adaptive Security & Stability Buffer ───────────────┐
-  │  Evaluates either package independently.             │
-  │  - Critical CVE / High Severity: 12-Hour Fast-Track  │
-  │  - Routine Features / Bugfixes: 24-Hour Baseline     │
-  └──────────────────────────────────────────────────────┘
+  ┌─ Adaptive Security & Decoupled Buffer ────────────────┐
+  │  Independent evaluation per component:               │
+  │  - Critical CVE / High Severity: 12-Hour Fast-Track   │
+  │  - Routine Features / Bugfixes: 24-Hour Baseline      │
+  │  - Manual Zero-Day Override: 0-Hour Immediate         │
+  └───────────────────────────────────────────────────────┘
          │
          ▼
   Downgrade Guard (sort -V rejects older versions)
@@ -244,25 +260,26 @@ GitHub Actions (hourly)
   VERSION file updated → Git Tag & GitHub Release created → Triggers reusable build workflow
          │
          ▼
-  ┌─ Compatibility & Integration Testing Guard ─────────┐
-  │  1. Spin up built container image locally in runner │
-  │  2. Run unbound-checkconf to verify configurations   │
-  │  3. Verify compiled Unbound version matches target  │
-  │  4. Query Pi-hole (port 53) to verify end-to-end    │
-  │     recursive resolution via Unbound (port 5335)    │
-  └─────────────────────────────────────────────────────┘
+  ┌─ Compatibility & Integration Testing Guard ──────────┐
+  │  1. Spin up built container image locally in runner  │
+  │  2. Run unbound-checkconf to verify configurations    │
+  │  3. Verify compiled Unbound version matches target   │
+  │  4. Query Unbound directly (port 5335) for recursion  │
+  │  5. Query Pi-hole (port 53) to verify end-to-end     │
+  │     recursive resolution via Unbound                 │
+  └──────────────────────────────────────────────────────┘
          │
          ▼
-  Image published to GHCR (safe, compatibility-verified)
+  Multi-Arch Image published to GHCR (linux/amd64, linux/arm64)
 ```
 
 ### Tag Filtering Examples
 
 | Tag | Result | Reason |
 |---|---|---|
-| `2026.05.0` | ✅ Accepted | Pi-hole date-based release (`YYYY.MM.N`) |
+| `2026.10.0` | ✅ Accepted | Pi-hole date-based release (`YYYY.MM.N`) |
 | `v2.1.3` | ✅ Accepted | Standard semver |
-| `release-1.25.0` | ✅ Accepted | Unbound's official tag format (`release-X.Y.Z`) |
+| `release-1.26.2` | ✅ Accepted | Unbound's official tag format (`release-X.Y.Z`) |
 | `v2.1.0-rc1` | ❌ Rejected | Blocklist: `rc` keyword |
 | `v2.1.0-hotfix` | ❌ Rejected | Allowlist: suffix not numeric |
 | `nightly-20240601` | ❌ Rejected | Blocklist: `nightly` keyword |
@@ -272,18 +289,31 @@ GitHub Actions (hourly)
 > **Complete Blocklist (Case-Insensitive)**:
 > `alpha`, `beta`, `canary`, `debug`, `dev`, `devel`, `development`, `edge`, `experimental`, `insiders`, `next`, `nightly`, `pre-`, `pre.`, `preview`, `rc`, `rh`, `snapshot`, `temp`, `test`, `tmp`, `unstable`
 
-### Infrastructure Details
+### Infrastructure & Resilience
 
 | Component | Detail |
 |---|---|
-| **Update Frequency** | Hourly via GitHub Actions cron |
-| **API Authentication** | `GITHUB_TOKEN` (auto-provided by GitHub, 5,000 req/hr) |
-| **API Fallback** | Multi-source resolution: GitHub Releases, GitHub Tags API (`/tags` + commit dates), and Docker Hub Registry API |
+| **Update Frequency** | Hourly via GitHub Actions cron (`0 * * * *`) |
+| **API Authentication** | `GITHUB_TOKEN` (authenticated, 5,000 req/hr) |
+| **Multi-Source Resolution** | GitHub Releases (Pi-hole), GitHub Tags + Commit API (Unbound), Docker Hub Registry fallback |
+| **Upstream Scraper** | NLnetLabs publishes Git tags without Release objects; checker parses `/commits/{ref}` for accurate commit dates and CVE changelog extraction |
+| **Testing Harness** | Unit test suites in `environment/tests/` (Python + Bash) validate CVE regex parsing, security classification, and threshold calculation |
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
 | **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
-| **Multi-Arch** | `linux/amd64`, `linux/arm64` (emulated `linux/arm/v7` dropped to speed up build pipeline) |
+| **Multi-Arch** | `linux/amd64`, `linux/arm64` compiled from source |
 | **Build Trigger** | Pushes to Git Tags matching `20*`, manual dispatch, or reusable workflow call from `update-checker` |
 | **Layer Cache** | GitHub Actions cache (`type=gha`) for fast multi-arch rebuilds |
+
+---
+
+## 🛠️ Local Deployment & Maintenance
+
+For Linux hosts, Raspberry Pis, or home server environments, an automated interactive setup and maintenance tool is provided in `local-deploy/install.sh`:
+
+- **Interactive Management**: 17 built-in operations (fresh install, container updates, diagnostics, password changes, adlist/domain imports, DNSSEC tests, log streaming).
+- **Dual-Daemon Health Verification**: Verifies both internal Unbound recursive resolution (`127.0.0.1#5335`) and the Pi-hole DNS sinkhole (`127.0.0.1#53`).
+- **Automated Stale Image Pruning**: Automatically runs `docker image prune -f` after updates to reclaim storage on flash storage devices (SD cards, eMMC).
+- **Host Port 53 Stub Handler**: Automatically frees port 53 by managing the host `systemd-resolved` stub listener safely.
 
 ---
 
