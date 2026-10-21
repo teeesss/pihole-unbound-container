@@ -7,6 +7,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | `environment/tests/test_security_eval.py` | 6 | 6 | 0 | ✅ PASS |
 | `environment/tests/test_security_eval.sh` | 10 | 10 | 0 | ✅ PASS |
+| `local-deploy/install.sh (bash -n syntax)` | 1 | 1 | 0 | ✅ PASS |
 
 ---
 
