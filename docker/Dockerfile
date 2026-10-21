@@ -15,10 +15,10 @@ RUN apk update && apk add --no-cache \
     flex
 
 # Download and compile Unbound from source
-RUN cd /tmp && \
-    wget https://github.com/NLnetLabs/unbound/archive/refs/tags/${UNBOUND_VERSION}.tar.gz && \
-    tar -xzf ${UNBOUND_VERSION}.tar.gz && \
-    cd unbound-${UNBOUND_VERSION} && \
+RUN mkdir -p /tmp/unbound-src && \
+    wget -qO /tmp/unbound.tar.gz https://github.com/NLnetLabs/unbound/archive/refs/tags/${UNBOUND_VERSION}.tar.gz && \
+    tar -xzf /tmp/unbound.tar.gz -C /tmp/unbound-src --strip-components=1 && \
+    cd /tmp/unbound-src && \
     ./configure \
         --prefix=/usr \
         --sysconfdir=/etc \
@@ -60,7 +60,7 @@ RUN getent group unbound || addgroup -S unbound && \
 
 # Download latest root hints for Unbound recursion
 RUN mkdir -p /var/lib/unbound && \
-    wget https://www.internic.net/domain/named.root -qO- | tee /var/lib/unbound/root.hints && \
+    wget --timeout=15 --tries=3 https://www.internic.net/domain/named.root -qO- | tee /var/lib/unbound/root.hints && \
     chown unbound:unbound /var/lib/unbound/root.hints
 
 # Copy configuration files

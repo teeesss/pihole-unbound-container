@@ -4,6 +4,17 @@ on:
   schedule:
     - cron: '0 * * * *' # Every 1 hour
   workflow_dispatch: # Manual trigger
+    inputs:
+      force_immediate:
+        description: 'Bypass cooling buffer and promote immediately'
+        required: false
+        type: boolean
+        default: false
+      override_buffer_hours:
+        description: 'Override cooling buffer in hours (0 = use adaptive)'
+        required: false
+        type: number
+        default: 0
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,6 +35,8 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_IMMEDIATE: ${{ inputs.force_immediate || 'false' }}
+          OVERRIDE_BUFFER_HOURS: ${{ inputs.override_buffer_hours || 0 }}
         run: |
           set -euo pipefail
 
@@ -103,6 +116,20 @@ jobs:
             echo "$response" | jq -r '.commit.committer.date // .commit.author.date // ""'
           }
 
+          # ── Helper: fetch commit message from GitHub Ref/Tag ─────────────────────
+          get_github_commit_message() {
+            local repo="$1"
+            local ref="$2"
+            local response
+            
+            response=$(fetch_url "https://api.github.com/repos/${repo}/commits/${ref}" \
+              "Authorization: Bearer ${GH_TOKEN}" \
+              "Accept: application/vnd.github+json" \
+              "X-GitHub-Api-Version: 2022-11-28") || return 1
+
+            echo "$response" | jq -r '.commit.message // ""'
+          }
+
           # ── Fallback: fetch from Docker Hub (for Pi-hole) ────────────────────────
           get_dockerhub_tag() {
             local repo="$1"
@@ -126,6 +153,51 @@ jobs:
             [ "$(printf '%s\n%s\n' "$current" "$new" | sort -V | head -n1)" = "$new" ] && [ "$current" != "$new" ]
           }
 
+          # ── Helper: Security Severity Classifier ─────────────────────────────────
+          is_security_release() {
+            local text="$1"
+            echo "$text" | grep -Eiq "CVE-[0-9]{4}-[0-9]+|\b(critical|high)[ -]severit|severity:\s*(critical|high)|\brce\b|remote[ -]code[ -]execution|denial[ -]of[ -]service|\bDoS\b|dnssec[ -]bypass|cache[ -]poisoning|\bpoisoning\b|\bspoofing\b|buffer[ -]overflow|memory[ -]corruption|privilege[ -]escalation|arbitrary[ -]code|vulnerabilit(y|ies)|security[ -](patch|fix|update|advisory|issue)|zero-day|0-day"
+          }
+
+          extract_security_reason() {
+            local text="$1"
+            local cve
+            cve=$(echo "$text" | grep -Eio "CVE-[0-9]{4}-[0-9]+" || true)
+            cve=$(echo "$cve" | sed -n '1p')
+            if [ -n "$cve" ]; then
+              echo "CVE detected: $(echo "$cve" | tr '[:lower:]' '[:upper:]')"
+              return
+            fi
+            local kw
+            kw=$(echo "$text" | grep -Eio "\b(critical|high)[ -]severit|\brce\b|remote[ -]code[ -]execution|denial[ -]of[ -]service|\bDoS\b|dnssec[ -]bypass|cache[ -]poisoning|\bpoisoning\b|\bspoofing\b|buffer[ -]overflow|memory[ -]corruption|privilege[ -]escalation|vulnerabilit[a-z]*|security[ -][a-z]+" || true)
+            kw=$(echo "$kw" | sed -n '1p')
+            if [ -n "$kw" ]; then
+              echo "Security indicator: $kw"
+              return
+            fi
+            echo "Security alert"
+          }
+
+          get_threshold_seconds() {
+            local text="$1"
+            local override_hours="${2:-0}"
+            local force_immediate="${3:-false}"
+
+            if [ "$force_immediate" = "true" ]; then
+              echo 0
+              return
+            fi
+            if [ "$override_hours" -gt 0 ] 2>/dev/null; then
+              echo $(( override_hours * 3600 ))
+              return
+            fi
+            if is_security_release "$text"; then
+              echo 43200 # 12 hours
+            else
+              echo 86400 # 24 hours
+            fi
+          }
+
           # ── Execution ────────────────────────────────────────────────────────────
           
           # 1. Resolve Pi-hole
@@ -141,6 +213,10 @@ jobs:
           if [ -z "$PI_DATE" ]; then
             PI_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           fi
+
+          PI_BODY=$(get_github_release "pi-hole/docker-pi-hole" "body" 2>/dev/null || true)
+          PI_NAME=$(get_github_release "pi-hole/docker-pi-hole" "name" 2>/dev/null || true)
+          PI_TEXT="${PI_NAME} ${PI_BODY}"
           
           # 2. Resolve Unbound
           UNBOUND_VERSION=$(get_github_release "NLnetLabs/unbound" "tag_name" 2>/dev/null || true)
@@ -156,6 +232,10 @@ jobs:
             UNBOUND_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           fi
 
+          UNBOUND_MSG=$(get_github_commit_message "NLnetLabs/unbound" "$UNBOUND_VERSION" 2>/dev/null || true)
+          UNBOUND_BODY=$(get_github_release "NLnetLabs/unbound" "body" 2>/dev/null || true)
+          UNBOUND_TEXT="${UNBOUND_MSG} ${UNBOUND_BODY}"
+
           echo "Pi-hole candidate  : ${PI_VERSION:-<unknown>} (${PI_DATE:-?})"
           echo "Unbound candidate  : ${UNBOUND_VERSION:-<unknown>} (${UNBOUND_DATE:-?})"
 
@@ -166,7 +246,7 @@ jobs:
           # Bail if resolution failed
           if [ -z "$PI_VERSION" ] || [ -z "$UNBOUND_VERSION" ]; then
             echo "::warning::Resolution failed; skipping."
-            echo "stable=skip" >> "$GITHUB_OUTPUT"
+            echo "promote=false" >> "$GITHUB_OUTPUT"
             echo "pending=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -181,53 +261,97 @@ jobs:
             UNBOUND_VERSION="$CURR_UNBOUND"
           fi
 
-          # 3-Day Buffer check
-          THRESHOLD=259200
+          # ── Adaptive Threshold & Decoupled Evaluation ────────────────────────────
+          PI_THRESHOLD=$(get_threshold_seconds "$PI_TEXT" "$OVERRIDE_BUFFER_HOURS" "$FORCE_IMMEDIATE")
+          if is_security_release "$PI_TEXT"; then
+            PI_REASON="⚡ Security Fast-Track (12h): $(extract_security_reason "$PI_TEXT")"
+          else
+            PI_REASON="Standard Release (24h)"
+          fi
+
+          UNBOUND_THRESHOLD=$(get_threshold_seconds "$UNBOUND_TEXT" "$OVERRIDE_BUFFER_HOURS" "$FORCE_IMMEDIATE")
+          if is_security_release "$UNBOUND_TEXT"; then
+            UNBOUND_REASON="⚡ Security Fast-Track (12h): $(extract_security_reason "$UNBOUND_TEXT")"
+          else
+            UNBOUND_REASON="Standard Release (24h)"
+          fi
+
           NOW=$(date -u +%s)
 
-          PI_STABLE=true
+          PI_READY=true
+          PI_IS_NEW=false
+          PI_AGE=0
+          TARGET_PI="$CURR_PI"
+
           if [ "$PI_VERSION" != "$CURR_PI" ]; then
+            PI_IS_NEW=true
             PI_AGE=$(( NOW - $(date -d "$PI_DATE" +%s 2>/dev/null || echo "$NOW") ))
-            if [ "$PI_AGE" -lt "$THRESHOLD" ]; then
-              PI_STABLE=false
-              echo "::notice::Pi-hole version $PI_VERSION is too new (age $((PI_AGE/3600))h < 72h)"
+            if [ "$PI_AGE" -ge "$PI_THRESHOLD" ]; then
+              PI_READY=true
+              TARGET_PI="$PI_VERSION"
+              echo "Pi-hole $PI_VERSION is ready (age $((PI_AGE/3600))h >= $((PI_THRESHOLD/3600))h) [$PI_REASON]"
+            else
+              PI_READY=false
+              echo "::notice::Pi-hole $PI_VERSION is cooling (age $((PI_AGE/3600))h < $((PI_THRESHOLD/3600))h) [$PI_REASON]"
             fi
           fi
 
-          UNBOUND_STABLE=true
+          UNBOUND_READY=true
+          UNBOUND_IS_NEW=false
+          UNBOUND_AGE=0
+          TARGET_UNBOUND="$CURR_UNBOUND"
+
           if [ "$UNBOUND_VERSION" != "$CURR_UNBOUND" ]; then
+            UNBOUND_IS_NEW=true
             UNBOUND_AGE=$(( NOW - $(date -d "$UNBOUND_DATE" +%s 2>/dev/null || echo "$NOW") ))
-            if [ "$UNBOUND_AGE" -lt "$THRESHOLD" ]; then
-              UNBOUND_STABLE=false
-              echo "::notice::Unbound version $UNBOUND_VERSION is too new (age $((UNBOUND_AGE/3600))h < 72h)"
+            if [ "$UNBOUND_AGE" -ge "$UNBOUND_THRESHOLD" ]; then
+              UNBOUND_READY=true
+              TARGET_UNBOUND="$UNBOUND_VERSION"
+              echo "Unbound $UNBOUND_VERSION is ready (age $((UNBOUND_AGE/3600))h >= $((UNBOUND_THRESHOLD/3600))h) [$UNBOUND_REASON]"
+            else
+              UNBOUND_READY=false
+              echo "::notice::Unbound $UNBOUND_VERSION is cooling (age $((UNBOUND_AGE/3600))h < $((UNBOUND_THRESHOLD/3600))h) [$UNBOUND_REASON]"
             fi
           fi
 
-          echo "latest_pi=$PI_VERSION" >> "$GITHUB_OUTPUT"
-          echo "latest_unbound=$UNBOUND_VERSION" >> "$GITHUB_OUTPUT"
+          echo "target_pi=$TARGET_PI" >> "$GITHUB_OUTPUT"
+          echo "target_unbound=$TARGET_UNBOUND" >> "$GITHUB_OUTPUT"
 
-          if [ "$PI_STABLE" = "true" ] && [ "$UNBOUND_STABLE" = "true" ]; then
-            echo "stable=true" >> "$GITHUB_OUTPUT"
-            echo "pending=false" >> "$GITHUB_OUTPUT"
+          if [ "$TARGET_PI" != "$CURR_PI" ] || [ "$TARGET_UNBOUND" != "$CURR_UNBOUND" ]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
           else
-            echo "stable=false" >> "$GITHUB_OUTPUT"
-            echo "pending=true" >> "$GITHUB_OUTPUT"
-            
-            # Generate PENDING_RELEASES.md content
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          HAS_PENDING=false
+          if [ "$PI_IS_NEW" = "true" ] && [ "$PI_READY" = "false" ]; then
+            HAS_PENDING=true
+          fi
+          if [ "$UNBOUND_IS_NEW" = "true" ] && [ "$UNBOUND_READY" = "false" ]; then
+            HAS_PENDING=true
+          fi
+          echo "pending=$HAS_PENDING" >> "$GITHUB_OUTPUT"
+
+          if [ "$HAS_PENDING" = "true" ]; then
             {
-              echo "# Pending Releases (72-Hour Cooling Buffer)"
+              echo "# Pending Releases (Adaptive Security Buffer)"
               echo ""
-              echo "The following upstream release(s) have been detected but are currently undergoing mandatory 72-hour community testing before automated container builds trigger:"
+              echo "The following upstream release(s) have been detected and are currently cooling down before automated container builds trigger."
               echo ""
-              echo "| Component | Target Version | Upstream Released | Current Age | Status |"
-              echo "| :--- | :--- | :--- | :--- | :--- |"
-              if [ "$PI_STABLE" = "false" ]; then
-                PI_REM=$(( (THRESHOLD - PI_AGE) / 3600 ))
-                echo "| Pi-hole | \`$PI_VERSION\` | $PI_DATE | $((PI_AGE/3600))h | ⏳ Cooling down (~${PI_REM}h remaining) |"
+              echo "- **Standard Buffer**: 24 hours"
+              echo "- **Security / CVE Fast-Track Buffer**: 12 hours"
+              echo ""
+              echo "| Component | Target Version | Upstream Released | Current Age | Policy / Buffer | Status |"
+              echo "| :--- | :--- | :--- | :--- | :--- | :--- |"
+              if [ "$PI_IS_NEW" = "true" ] && [ "$PI_READY" = "false" ]; then
+                PI_REM=$(( (PI_THRESHOLD - PI_AGE) / 3600 ))
+                [ "$PI_REM" -lt 1 ] && PI_REM="<1"
+                echo "| Pi-hole | \`$PI_VERSION\` | $PI_DATE | $((PI_AGE/3600))h | $PI_REASON | ⏳ Cooling (~${PI_REM}h remaining) |"
               fi
-              if [ "$UNBOUND_STABLE" = "false" ]; then
-                UNBOUND_REM=$(( (THRESHOLD - UNBOUND_AGE) / 3600 ))
-                echo "| Unbound | \`$UNBOUND_VERSION\` | $UNBOUND_DATE | $((UNBOUND_AGE/3600))h | ⏳ Cooling down (~${UNBOUND_REM}h remaining) |"
+              if [ "$UNBOUND_IS_NEW" = "true" ] && [ "$UNBOUND_READY" = "false" ]; then
+                UNBOUND_REM=$(( (UNBOUND_THRESHOLD - UNBOUND_AGE) / 3600 ))
+                [ "$UNBOUND_REM" -lt 1 ] && UNBOUND_REM="<1"
+                echo "| Unbound | \`$UNBOUND_VERSION\` | $UNBOUND_DATE | $((UNBOUND_AGE/3600))h | $UNBOUND_REASON | ⏳ Cooling (~${UNBOUND_REM}h remaining) |"
               fi
               echo ""
               echo "_Last checked: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
@@ -240,9 +364,9 @@ jobs:
           if [ -f PENDING_RELEASES.md ]; then
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
+            git pull --rebase origin master || true
             git add PENDING_RELEASES.md
             if ! git diff --cached --quiet; then
-              git pull --rebase origin master || true
               git commit -m "docs: update PENDING_RELEASES.md status"
               git push
             fi
@@ -250,40 +374,30 @@ jobs:
 
       - name: Update Version File
         id: update_file
-        if: steps.check.outputs.stable == 'true'
+        if: steps.check.outputs.promote == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PI_VER="${{ steps.check.outputs.latest_pi }}"
-          UNBOUND_VER="${{ steps.check.outputs.latest_unbound }}"
+          PI_VER="${{ steps.check.outputs.target_pi }}"
+          UNBOUND_VER="${{ steps.check.outputs.target_unbound }}"
           echo "PIHOLE_VERSION=$PI_VER" > VERSION
           echo "UNBOUND_VERSION=$UNBOUND_VER" >> VERSION
 
-          # Remove PENDING_RELEASES.md once release is promoted
-          rm -f PENDING_RELEASES.md
+          UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
+          TAG_NAME="${PI_VER}-${UNBOUND_VER_CLEAN}"
 
-          if git diff --quiet VERSION; then
-            echo "Versions are already current."
-            echo "updated=false" >> "$GITHUB_OUTPUT"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git pull --rebase origin master || true
+          git add VERSION
 
-            # Clean up pending file if it was still tracked in git
-            if [ -n "$(git status --porcelain PENDING_RELEASES.md 2>/dev/null)" ]; then
-              git config --local user.email "action@github.com"
-              git config --local user.name "GitHub Action"
-              git rm --ignore-unmatch PENDING_RELEASES.md
-              git pull --rebase origin master || true
-              git commit -m "docs: remove resolved PENDING_RELEASES.md"
-              git push
-            fi
-          else
-            UNBOUND_VER_CLEAN=$(echo "$UNBOUND_VER" | sed 's/^release-//')
-            TAG_NAME="${PI_VER}-${UNBOUND_VER_CLEAN}"
+          # If nothing pending anymore, remove PENDING_RELEASES.md
+          if [ "${{ steps.check.outputs.pending }}" != "true" ]; then
+            rm -f PENDING_RELEASES.md
+            git rm --ignore-unmatch PENDING_RELEASES.md 2>/dev/null || true
+          fi
 
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
-            git add VERSION
-            git rm --ignore-unmatch PENDING_RELEASES.md
-            git pull --rebase origin master || true
+          if ! git diff --cached --quiet; then
             git commit -m "chore: update upstream versions to Pi-hole $PI_VER and Unbound $UNBOUND_VER"
             git push
 
@@ -296,6 +410,8 @@ jobs:
 
             gh release create "$TAG_NAME" --title "Release $TAG_NAME" --notes "$RELEASE_NOTES"
             echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
           fi
 
   build-and-publish:

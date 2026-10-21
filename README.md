@@ -217,7 +217,10 @@ docker compose up -d --force-recreate
 
 ## 🤖 Automation Architecture
 
-This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected and satisfies its stability requirements (enforcing a mandatory 72-hour community testing buffer), an update is triggered, and compatibility is verified before release.
+This repository is **fully autonomous** and handles dependencies robustly. The pipeline checks for new stable upstream releases of **either** Pi-hole or Unbound hourly. If a new version of either package is detected, an adaptive security evaluation classifies the release:
+- **Critical Security / CVE Fast-Track**: 12-hour cooling buffer (triggers on CVEs, RCE, DoS, DNSSEC bypass, memory corruption, zero-day advisories).
+- **Standard Baseline**: 24-hour cooling buffer for routine feature and bugfix releases.
+- **Manual Fast-Track**: `workflow_dispatch` trigger with `force_immediate: true` for 0-hour instant emergency releases.
 
 ### Update Pipeline
 
@@ -228,10 +231,11 @@ GitHub Actions (hourly)
   fetch_release() ─── GitHub API (authenticated, 5000 req/hr)
          │              └── Docker Hub API (fallback)
          ▼
-  ┌─ Decoupled 3-Day Stability Buffer ──────────────────┐
-  │  Updates either package independently. Only checks  │
-  │  age buffer (72h) for the component being updated.  │
-  └─────────────────────────────────────────────────────┘
+  ┌─ Adaptive Security & Stability Buffer ───────────────┐
+  │  Evaluates either package independently.             │
+  │  - Critical CVE / High Severity: 12-Hour Fast-Track  │
+  │  - Routine Features / Bugfixes: 24-Hour Baseline     │
+  └──────────────────────────────────────────────────────┘
          │
          ▼
   Downgrade Guard (sort -V rejects older versions)
