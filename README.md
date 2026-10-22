@@ -174,11 +174,24 @@ If you operate in an air-gapped environment or prefer to manage system time excl
   ```
 
 #### 💡 Bonus: Fix for Bare-Metal (Non-Container) Pi-hole Devices
-If you also run bare-metal Pi-holes or standard Raspberry Pi OS devices (outside Docker) that experience this same power-outage deadlock, run this single command on the Raspberry Pi host:
+If you also run bare-metal Pi-holes or standard Raspberry Pi OS devices (outside Docker) that experience this same power-outage deadlock, run this single command on the Raspberry Pi host.
+
+Each fallback IP is mapped to an authoritative Tier-1 Anycast provider so you know exactly which servers are queried:
+- `162.159.200.1` — **Cloudflare** (`time.cloudflare.com`)
+- `216.239.35.0` — **Google** (`time.google.com`)
+- `129.6.15.28` — **NIST US Gov Atomic Clock** (`time.nist.gov`)
+- `17.253.34.253` — **Apple** (`time.apple.com`)
+- `40.119.6.228` — **Microsoft** (`time.windows.com`)
 
 ```bash
 sudo mkdir -p /etc/systemd/timesyncd.conf.d && sudo tee /etc/systemd/timesyncd.conf.d/fallback-raw-ips.conf << 'EOF'
 [Time]
+# Multi-Vendor Tier-1 Anycast NTP Fallback (DNS-free cold-boot time recovery)
+# 162.159.200.1 = Cloudflare (time.cloudflare.com)
+# 216.239.35.0  = Google (time.google.com)
+# 129.6.15.28   = NIST US Gov Atomic Clock (time.nist.gov)
+# 17.253.34.253 = Apple (time.apple.com)
+# 40.119.6.228  = Microsoft (time.windows.com)
 FallbackNTP=162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228
 EOF
 sudo systemctl restart systemd-timesyncd
