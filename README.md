@@ -173,6 +173,18 @@ If you operate in an air-gapped environment or prefer to manage system time excl
     - CUSTOM_NTP_IPS=192.168.1.1 10.0.0.5
   ```
 
+#### 💡 Bonus: Fix for Bare-Metal (Non-Container) Pi-hole Devices
+If you also run bare-metal Pi-holes or standard Raspberry Pi OS devices (outside Docker) that experience this same power-outage deadlock, run this single command on the Raspberry Pi host:
+
+```bash
+sudo mkdir -p /etc/systemd/timesyncd.conf.d && sudo tee /etc/systemd/timesyncd.conf.d/fallback-raw-ips.conf << 'EOF'
+[Time]
+FallbackNTP=162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228
+EOF
+sudo systemctl restart systemd-timesyncd
+```
+This forces the host `systemd-timesyncd` daemon to use raw Anycast IPs on cold boot without requiring DNS. It persists across reboots and Raspberry Pi OS updates.
+
 ---
 
 ## 💡 Advanced Configuration
