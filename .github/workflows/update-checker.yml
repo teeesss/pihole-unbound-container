@@ -358,6 +358,38 @@ jobs:
             } > PENDING_RELEASES.md
           fi
 
+      - name: Verify and Refresh NTP Fallback IPs
+        run: |
+          CONF_FILE="docker/ntp-servers.conf"
+          [ ! -f "$CONF_FILE" ] && exit 0
+
+          TEMP_FILE=$(mktemp)
+          echo "# Multi-Provider Anycast NTP Fallback IPs for Raspberry Pi / RTC Cold-Boot Recovery" > "$TEMP_FILE"
+          echo "# Automatically maintained and verified by .github/workflows/update-checker.yml" >> "$TEMP_FILE"
+          echo "# Format: PROVIDER|HOSTNAME|IPV4" >> "$TEMP_FILE"
+
+          while IFS='|' read -r provider host current_ip || [ -n "$provider" ]; do
+            [[ "$provider" =~ ^# ]] || [ -z "$provider" ] && continue
+            new_ip=$(dig +short "$host" A 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+            if [ -n "$new_ip" ]; then
+              echo "${provider}|${host}|${new_ip}" >> "$TEMP_FILE"
+            else
+              echo "${provider}|${host}|${current_ip}" >> "$TEMP_FILE"
+            fi
+          done < "$CONF_FILE"
+
+          mv "$TEMP_FILE" "$CONF_FILE"
+
+          if ! git diff --quiet "$CONF_FILE"; then
+            echo "NTP Fallback IPs updated from upstream DNS."
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git pull --rebase origin master || true
+            git add "$CONF_FILE"
+            git commit -m "chore(ntp): update Anycast fallback NTP server IPs"
+            git push origin master
+          fi
+
       - name: Update Pending Status File
         if: steps.check.outputs.pending == 'true'
         run: |

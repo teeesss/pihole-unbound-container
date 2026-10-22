@@ -13,7 +13,15 @@ Validates CVE identification, keyword scanning, threshold calculations, real-wor
 python environment/tests/test_security_eval.py
 ```
 
-### 2. Bash Workflow Logic Test Suite
+### 2. Python Container Configuration & Hardening Test Suite
+Validates Unbound parameters (serve-expired, prefetch-key, cache sizing, auto-trust-anchor-file, ACLs), Dockerfile hardening (bind-tools, libunbound, strip), entrypoint supervision (unbound-checkconf, fail-fast), and publish workflow triggers.
+
+```bash
+# Run with Python 3:
+python environment/tests/test_container_config.py
+```
+
+### 3. Bash Workflow Logic Test Suite
 Validates the exact shell functions used in GitHub Actions (`.github/workflows/update-checker.yml`).
 
 ```bash

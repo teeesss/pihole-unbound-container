@@ -18,12 +18,14 @@ local-deploy/
 *.pem
 *.pfx
 
-# System / IDE
+# System / IDE / Python
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 *.swp
+__pycache__/
+*.pyc
 
 # Docker / Logs
 *.log

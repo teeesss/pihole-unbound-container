@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - '20*'
+      - 'v*'
   workflow_dispatch: # Allow manual build
   workflow_call:     # Allow reusable workflow calls
 
@@ -69,7 +70,6 @@ jobs:
             UNBOUND_VERSION=${{ steps.get_version.outputs.UNBOUND_VERSION }}
           tags: pihole-unbound:test
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Run Integration Tests
         run: |
@@ -80,8 +80,8 @@ jobs:
           for i in {1..15}; do
             if docker exec pihole-test unbound-checkconf /etc/unbound/unbound.conf && \
                docker exec pihole-test unbound -V && \
-               docker exec pihole-test nslookup -port=5335 google.com 127.0.0.1 >/dev/null 2>&1 && \
-               docker exec pihole-test nslookup google.com 127.0.0.1 >/dev/null 2>&1; then
+               docker exec pihole-test dig @127.0.0.1 -p 5335 google.com +short >/dev/null 2>&1 && \
+               docker exec pihole-test dig @127.0.0.1 google.com +short >/dev/null 2>&1; then
               echo "Pi-hole and Unbound integration check passed!"
               success=true
               break

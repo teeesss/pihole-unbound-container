@@ -135,6 +135,44 @@ The bundled Unbound configuration has IPv6 disabled by default (`do-ip6: no`). I
 > [!NOTE]
 > For IPv6 guidance, see the [Pi-hole documentation](https://docs.pi-hole.net/) and the [Unbound configuration reference](https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html).
 
+### ⏱️ Cold-Boot DNSSEC & Time Recovery (Raspberry Pi & SBCs)
+
+#### The Problem: The "Chicken-and-Egg" Deadlock
+Single-board computers like the **Raspberry Pi lack a hardware battery-backed Real-Time Clock (RTC)**. When power is lost or the device is cold-booted:
+1. The host system clock resets to 1970 (or the last saved timestamp).
+2. Unbound starts up with DNSSEC validation enforced (`harden-dnssec-stripped: yes`).
+3. DNSSEC compares the digital signatures (`RRSIG`) of upstream domains against the local system clock. Because the system clock is in 1970, all signatures are evaluated as expired or not yet valid, causing Unbound to return `SERVFAIL` on **every single DNS query**.
+4. The host OS's NTP daemon attempts to sync the clock by resolving `pool.ntp.org` via Pi-hole (`127.0.0.1`).
+5. Because DNS is dead, NTP cannot resolve the time servers. Because time cannot sync, DNS remains permanently dead.
+
+#### The Autonomous Solution
+To eliminate this deadlock without forcing users to rely on commercial DNS forwarders (1.1.1.1, 8.8.8.8), the container includes an autonomous, guarded clock-recovery mechanism in its entrypoint:
+
+1. **Guarded Execution**: The recovery script checks if the system clock year is behind the image build year (`/etc/build_year`). **If your system time is already current (normal boot), this function exits in milliseconds with zero network requests.**
+2. **Local Router First**: The container dynamically checks your local router's default gateway IP (queried from the kernel routing table, whether `192.168.1.1`, `10.0.0.1`, or `172.16.0.1`). If your router runs an NTP service, time syncs directly on your local LAN with **zero external Internet queries**.
+3. **Multi-Vendor Anycast Fallback**: If the local router does not serve NTP, the container queries 5 globally distributed, multi-vendor Tier-1 Anycast time servers via raw IP (DNS-free):
+   - **Cloudflare**: `162.159.200.1` (`time.cloudflare.com`)
+   - **Google**: `216.239.35.0` (`time.google.com`)
+   - **NIST (US Gov Atomic Clock)**: `129.6.15.28` (`time.nist.gov`)
+   - **Apple**: `17.253.34.253` (`time.apple.com`)
+   - **Microsoft**: `40.119.6.228` (`time.windows.com`)
+4. **Dual-Protocol**: Attempts standard NTP over UDP port 123. If blocked by an outbound firewall, it falls back to HTTP `Date:` header extraction over standard TCP port 80.
+5. **Automated CI Maintenance**: Our GitHub Actions pipeline continuously resolves upstream time hostnames and auto-updates the IP list if providers ever migrate subnets.
+
+#### Privacy & Opt-Out Controls
+If you operate in an air-gapped environment or prefer to manage system time exclusively through host tools:
+
+- **Disable entirely**: Set `AUTO_TIME_SYNC=false` in your `docker-compose.yml` or `.env`:
+  ```yaml
+  environment:
+    - AUTO_TIME_SYNC=false
+  ```
+- **Use internal corporate/homelab NTP**: Specify your own private NTP server IPs:
+  ```yaml
+  environment:
+    - CUSTOM_NTP_IPS=192.168.1.1 10.0.0.5
+  ```
+
 ---
 
 ## 💡 Advanced Configuration
@@ -301,7 +339,7 @@ GitHub Actions (hourly cron: 0 * * * *)
 | **Network Resilience** | 3 retries with exponential backoff on all API calls |
 | **Failure Mode** | Emits `::warning::` and exits cleanly — never fails red on transient errors |
 | **Multi-Arch** | `linux/amd64`, `linux/arm64` compiled from source |
-| **Build Trigger** | Pushes to Git Tags matching `20*`, manual dispatch, or reusable workflow call from `update-checker` |
+| **Build Trigger** | Pushes to Git Tags matching `20*` or `v*`, manual dispatch, or reusable workflow call from `update-checker` |
 | **Layer Cache** | GitHub Actions cache (`type=gha`) for fast multi-arch rebuilds |
 
 ---
