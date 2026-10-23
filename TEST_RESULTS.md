@@ -5,7 +5,7 @@
 ### Summary
 | Test Suite | Total Tests | Passed | Failed | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `environment/tests/test_container_config.py` | 20 | 20 | 0 | ✅ PASS |
+| `environment/tests/test_container_config.py` | 23 | 23 | 0 | ✅ PASS |
 | `environment/tests/test_security_eval.py` | 6 | 6 | 0 | ✅ PASS |
 | `environment/tests/test_security_eval.sh` | 10 | 10 | 0 | ✅ PASS |
 
@@ -34,6 +34,8 @@
 - `test_fail_fast_on_startup_failure`: ✅ PASS (exit 1 fail-fast active on daemon start failure)
 - `test_tag_triggers`: ✅ PASS (docker-publish.yml triggers on '20*' and 'v*')
 - `test_gha_cache_efficiency`: ✅ PASS (single-arch test step avoids duplicate cache export)
+- `test_ntp_pass_precedes_router_http`: ✅ PASS (Anycast NTP runs before router HTTP Date)
+- `test_quick_start_uses_v6_upstream_and_sys_time`: ✅ PASS (README uses FTLCONF_dns_upstreams and SYS_TIME)
 
 #### 2. Python Security & Decoupled Resolution (`test_security_eval.py`)
 - `test_cve_pattern_detection`: ✅ PASS (Detected CVE patterns and extracted identifiers)
