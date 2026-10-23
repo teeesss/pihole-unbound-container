@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 set -e
 
 # Ensure Unbound state, run, and log directories exist with correct ownership
@@ -27,65 +27,80 @@ sync_clock_if_skewed() {
     echo "  [!] WARNING: System clock ($current_year) is behind image build year ($build_year). DNSSEC validation will fail."
     echo "  [i] Initiating cold-boot clock resuscitation via raw IP (DNS-free)..."
 
-    local ntp_ips=""
+    local custom_ips="" router_ip="" anycast_ips=""
 
     # 1. Custom user-supplied IPs take highest priority
     if [ -n "${CUSTOM_NTP_IPS:-}" ]; then
-        ntp_ips="$CUSTOM_NTP_IPS"
+        custom_ips="$CUSTOM_NTP_IPS"
     fi
 
-    # 2. Local default gateway (router) check
-    local router_ip
+    # 2. Local default gateway. Used for NTP before anycast, and for HTTP only after anycast.
     router_ip=$(ip route 2>/dev/null | awk '/default/ {print $3}' | head -n1 || true)
-    if [ -n "$router_ip" ]; then
-        ntp_ips="${ntp_ips} ${router_ip}"
-    fi
 
     # 3. Built-in Tier-1 Anycast IPs from config file
     if [ -f /etc/unbound/ntp-servers.conf ]; then
-        local file_ips
-        file_ips=$(grep -v '^#' /etc/unbound/ntp-servers.conf | cut -d'|' -f3 | tr '\n' ' ' || true)
-        ntp_ips="${ntp_ips} ${file_ips}"
+        anycast_ips=$(grep -v '^#' /etc/unbound/ntp-servers.conf | cut -d'|' -f3 | tr '\n' ' ' || true)
     fi
 
-    # Fallback hardcoded defaults if config missing
-    if [ -z "$ntp_ips" ]; then
-        ntp_ips="162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228"
+    # Fallback hardcoded defaults if nothing else is available
+    if [ -z "$custom_ips" ] && [ -z "$router_ip" ] && [ -z "$anycast_ips" ]; then
+        anycast_ips="162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228"
     fi
+
+    clock_year_ok() {
+        local new_year
+        new_year=$(date -u +%Y 2>/dev/null || echo "1970")
+        if [ "$new_year" -ge 2025 ] && [ "$new_year" -le 2038 ]; then
+            return 0
+        fi
+        return 1
+    }
+
+    try_ntp() {
+        echo -n "  [➔] Attempting NTP via $1... "
+        if busybox ntpd -q -n -p "$1" 2>/dev/null && clock_year_ok; then
+            echo "SUCCESS (NTP UDP:123)"
+            return 0
+        fi
+        echo "FAILED"
+        return 1
+    }
+
+    try_http_date() {
+        local http_date
+        echo -n "  [➔] Attempting HTTP Date via $1... "
+        http_date=$(wget -S --spider --timeout=3 "http://$1" 2>&1 | grep -i '^[[:space:]]*Date:' | head -n1 | sed -e 's/^[[:space:]]*[Dd]ate:[[:space:]]*//' || true)
+        if [ -n "$http_date" ] && date -u -s "$http_date" >/dev/null 2>&1 && clock_year_ok; then
+            echo "SUCCESS (HTTP Date:80)"
+            return 0
+        fi
+        echo "FAILED"
+        return 1
+    }
 
     local synced=false
-    for ip in $ntp_ips; do
-        [ -z "$ip" ] && continue
-        echo -n "  [➔] Attempting time sync via $ip... "
+    local ip
 
-        # Attempt 1: Raw UDP NTP query via busybox ntpd
-        if busybox ntpd -q -n -p "$ip" 2>/dev/null; then
-            local new_year
-            new_year=$(date -u +%Y 2>/dev/null || echo "1970")
-            if [ "$new_year" -ge 2025 ] 2>/dev/null; then
-                echo "SUCCESS (NTP UDP:123)"
+    # Pass 1 is NTP only. Router NTP stays ahead of anycast NTP.
+    # A router web page must not answer before the Tier-1 NTP servers are tried.
+    for ip in $custom_ips $router_ip $anycast_ips; do
+        [ -z "$ip" ] && continue
+        if try_ntp "$ip"; then
+            synced=true
+            break
+        fi
+    done
+
+    # Pass 2 is HTTP Date, and only after every NTP attempt. Anycast before the router.
+    if [ "$synced" != "true" ]; then
+        for ip in $custom_ips $anycast_ips $router_ip; do
+            [ -z "$ip" ] && continue
+            if try_http_date "$ip"; then
                 synced=true
                 break
             fi
-        fi
-
-        # Attempt 2: HTTP Date header fallback via TCP port 80
-        local http_date
-        http_date=$(wget -S --spider --timeout=3 "http://$ip" 2>&1 | grep -i '^[[:space:]]*Date:' | head -n1 | sed -e 's/^[[:space:]]*[Dd]ate:[[:space:]]*//' || true)
-        if [ -n "$http_date" ]; then
-            if date -u -s "$http_date" >/dev/null 2>&1; then
-                local new_year
-                new_year=$(date -u +%Y 2>/dev/null || echo "1970")
-                if [ "$new_year" -ge 2025 ] 2>/dev/null; then
-                    echo "SUCCESS (HTTP Date:80)"
-                    synced=true
-                    break
-                fi
-            fi
-        fi
-
-        echo "FAILED"
-    done
+        done
+    fi
 
     if [ "$synced" = "true" ]; then
         echo "  [✓] System clock recovered successfully: $(date -u)"

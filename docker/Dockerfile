@@ -75,6 +75,11 @@ COPY ntp-servers.conf /etc/unbound/ntp-servers.conf
 # Setup directory for Unbound service
 RUN mkdir -p /etc/services.d/unbound
 
+# Pi-hole v6 does not read /etc/dnsmasq.d unless misc.etc_dnsmasq_d is on, and
+# the documented compose file bind-mounts over that directory. FTL applies this
+# line itself, so the EDNS cap still matches Unbound when the file is hidden.
+ENV FTLCONF_misc_dnsmasq_lines=edns-packet-max=1232
+
 # Entrypoint setup
 COPY custom-entrypoint.sh /custom-entrypoint.sh
 RUN chmod +x /custom-entrypoint.sh

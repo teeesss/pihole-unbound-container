@@ -113,10 +113,10 @@ def evaluate_component(
 
 def resolve_versions(pi_eval: dict, unbound_eval: dict) -> dict:
     """Decoupled promotion resolver."""
-    target_pi = pi_eval["candidate"] if pi_eval.get("is_new") and pi_eval.get("ready") else pi_eval["current"]
-    target_unbound = unbound_eval["candidate"] if unbound_eval.get("is_new") and unbound_eval.get("ready") else unbound_eval["current"]
+    target_pi = pi_eval.get("candidate") if pi_eval.get("is_new") and pi_eval.get("ready") else pi_eval.get("current")
+    target_unbound = unbound_eval.get("candidate") if unbound_eval.get("is_new") and unbound_eval.get("ready") else unbound_eval.get("current")
 
-    has_promotions = (target_pi != pi_eval["current"]) or (target_unbound != unbound_eval["current"])
+    has_promotions = (target_pi != pi_eval.get("current")) or (target_unbound != unbound_eval.get("current"))
     has_pending = (pi_eval.get("is_new") and not pi_eval.get("ready")) or (
         unbound_eval.get("is_new") and not unbound_eval.get("ready")
     )

@@ -43,7 +43,7 @@ services:
     environment:
       TZ: 'America/Chicago'                          # Set to your timezone
       FTLCONF_webserver_api_password: 'changeme'     # Pi-hole v6 admin password
-      PIHOLE_DNS_: '127.0.0.1#5335'                  # Points Pi-hole at the bundled Unbound
+      FTLCONF_dns_upstreams: '127.0.0.1#5335'        # Points Pi-hole at the bundled Unbound
       FTLCONF_dns_dnssec: 'true'                     # Enable DNSSEC validation
     ports:
       - "53:53/tcp"                    # DNS (TCP)
@@ -52,6 +52,8 @@ services:
     volumes:
       - './etc-pihole:/etc/pihole'           # Persistent Pi-hole config
       - './etc-dnsmasq.d:/etc/dnsmasq.d'     # Persistent dnsmasq config
+    cap_add:
+      - SYS_TIME                       # Cold-boot NTP sets the host clock
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "dig @127.0.0.1 -p 5335 google.com +short && dig @127.0.0.1 google.com +short || exit 1"]
@@ -117,7 +119,7 @@ docker exec -it pihole dig @127.0.0.1 ads.google.com
 
 ### Pi-hole DNS Settings
 
-The `PIHOLE_DNS_: '127.0.0.1#5335'` environment variable tells Pi-hole to forward all DNS queries to the bundled Unbound resolver on port 5335. This is configured automatically when you use the compose file above.
+The `FTLCONF_dns_upstreams: '127.0.0.1#5335'` environment variable tells Pi-hole to forward all DNS queries to the bundled Unbound resolver on port 5335. This is configured automatically when you use the compose file above. The image also sets `FTLCONF_misc_dnsmasq_lines=edns-packet-max=1232` so Pi-hole's packet cap matches Unbound. Overriding that variable replaces the whole list, so keep `edns-packet-max=1232` in the value.
 
 To verify or change it manually:
 1. Open the Pi-hole dashboard → **Settings** → **DNS**.
@@ -149,14 +151,14 @@ Single-board computers like the **Raspberry Pi lack a hardware battery-backed Re
 To eliminate this deadlock without forcing users to rely on commercial DNS forwarders (1.1.1.1, 8.8.8.8), the container includes an autonomous, guarded clock-recovery mechanism in its entrypoint:
 
 1. **Guarded Execution**: The recovery script checks if the system clock year is behind the image build year (`/etc/build_year`). **If your system time is already current (normal boot), this function exits in milliseconds with zero network requests.**
-2. **Local Router First**: The container dynamically checks your local router's default gateway IP (queried from the kernel routing table, whether `192.168.1.1`, `10.0.0.1`, or `172.16.0.1`). If your router runs an NTP service, time syncs directly on your local LAN with **zero external Internet queries**.
-3. **Multi-Vendor Anycast Fallback**: If the local router does not serve NTP, the container queries 5 globally distributed, multi-vendor Tier-1 Anycast time servers via raw IP (DNS-free):
+2. **Local Router NTP First**: The container reads the default gateway from the kernel routing table. If that router serves NTP, time syncs on the LAN with no external query.
+3. **Multi-Vendor Anycast NTP**: If router NTP does not set a sane clock, the container queries these Tier-1 servers by raw IP, still with NTP, before it trusts any HTTP `Date` header:
    - **Cloudflare**: `162.159.200.1` (`time.cloudflare.com`)
    - **Google**: `216.239.35.0` (`time.google.com`)
    - **NIST (US Gov Atomic Clock)**: `129.6.15.28` (`time.nist.gov`)
    - **Apple**: `17.253.34.253` (`time.apple.com`)
    - **Microsoft**: `40.119.6.228` (`time.windows.com`)
-4. **Dual-Protocol**: Attempts standard NTP over UDP port 123. If blocked by an outbound firewall, it falls back to HTTP `Date:` header extraction over standard TCP port 80.
+4. **HTTP only after NTP**: If UDP/123 fails for every candidate, it reads an HTTP `Date` header on port 80. Anycast addresses are tried before the router's web interface, so a router admin page cannot set the clock first. The quick-start compose file adds `SYS_TIME` because Docker does not grant that capability by default, and the container clock is the host clock.
 5. **Automated CI Maintenance**: Our GitHub Actions pipeline continuously resolves upstream time hostnames and auto-updates the IP list if providers ever migrate subnets.
 
 #### Privacy & Opt-Out Controls
@@ -237,7 +239,10 @@ cap_add:
   - CHOWN
   - SETUID
   - SETGID
+  - SYS_TIME
 ```
+
+`SYS_TIME` is what lets the cold-boot NTP step set the clock. Dropping it leaves that step unable to change the time.
 
 > [!CAUTION]
 > Capability requirements may change between Pi-hole versions. Always test after upgrading. See the [Pi-hole Docker repo](https://github.com/pi-hole/docker-pi-hole) for the latest guidance.

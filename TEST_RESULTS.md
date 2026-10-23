@@ -1,6 +1,6 @@
 # Test Results
 
-## Latest Run: 2026-10-22 (All Passed - 100%)
+## Latest Run: 2026-10-23 (All Passed - 100%)
 
 ### Summary
 | Test Suite | Total Tests | Passed | Failed | Status |
@@ -16,7 +16,7 @@
 #### 1. Python Container Configuration, Hardening & NTP Recovery (`test_container_config.py`)
 - `test_serve_expired_rfc8767`: ✅ PASS (RFC 8767 serve-expired, 86400s TTL, 1800ms client timeout verified)
 - `test_prefetch_and_prefetch_key`: ✅ PASS (Cache prefetch and DNSKEY prefetching enabled)
-- `test_cache_and_buffer_sizing`: ✅ PASS (msg-cache 64m, rrset-cache 128m, socket buffers 4m verified)
+- `test_cache_and_buffer_sizing`: ✅ PASS (msg-cache 64m, rrset-cache 128m, socket buffers 4m, num-queries-per-thread 4096 verified)
 - `test_dnssec_and_root_anchor`: ✅ PASS (RFC 5011 auto-trust-anchor-file, harden-dnssec-stripped verified)
 - `test_privacy_and_hardening`: ✅ PASS (hide-identity, hide-version, nxdomain cut, ACLs verified)
 - `test_bind_tools_installed`: ✅ PASS (bind-tools present in Dockerfile runtime stage)

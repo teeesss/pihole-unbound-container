@@ -40,6 +40,7 @@ class TestUnboundConfiguration(unittest.TestCase):
         self.assertRegex(self.content, r"rrset-cache-size:\s+128m", "rrset-cache-size must be at least 128m")
         self.assertRegex(self.content, r"so-rcvbuf:\s+4m", "so-rcvbuf must be configured")
         self.assertRegex(self.content, r"so-sndbuf:\s+4m", "so-sndbuf must be configured")
+        self.assertRegex(self.content, r"num-queries-per-thread:\s+4096", "num-queries-per-thread must be 4096")
 
     def test_dnssec_and_root_anchor(self):
         """Verify DNSSEC hardening and root key trust anchor path."""
@@ -93,6 +94,14 @@ class TestDockerfileHardening(unittest.TestCase):
     def test_legacy_lighttpd_removed(self):
         """Verify legacy lighttpd configuration is not copied into image."""
         self.assertNotIn("lighttpd-external.conf", self.content, "Legacy lighttpd config must be removed")
+
+    def test_edns_cap_set_through_ftl(self):
+        """Pi-hole v6 applies dnsmasq lines from FTLCONF, not from a hidden dnsmasq.d file."""
+        self.assertIn(
+            "FTLCONF_misc_dnsmasq_lines=edns-packet-max=1232",
+            self.content,
+            "Image must set the EDNS cap through FTL so a bind mount cannot hide it",
+        )
 
 
 class TestCustomEntrypoint(unittest.TestCase):
@@ -194,6 +203,28 @@ class TestClockResuscitation(unittest.TestCase):
         """Verify entrypoint attempts local default gateway router before WAN."""
         self.assertIn("ip route", self.entrypoint)
         self.assertIn("awk '/default/", self.entrypoint)
+
+    def test_ntp_pass_precedes_router_http(self):
+        """Anycast NTP runs before an HTTP Date from the router can be accepted."""
+        ntp_pass = self.entrypoint.find("for ip in $custom_ips $router_ip $anycast_ips")
+        http_pass = self.entrypoint.find("for ip in $custom_ips $anycast_ips $router_ip")
+        self.assertGreater(ntp_pass, 0, "NTP pass must list router before anycast")
+        self.assertGreater(http_pass, ntp_pass, "HTTP pass must come after NTP and list anycast before the router")
+
+
+class TestPublishedQuickStart(unittest.TestCase):
+    """The public README is the contract for how the two daemons are wired."""
+
+    @classmethod
+    def setUpClass(cls):
+        readme = os.path.join(PROJECT_ROOT, "README.md")
+        with open(readme, "r", encoding="utf-8") as f:
+            cls.content = f.read()
+
+    def test_quick_start_uses_v6_upstream_and_sys_time(self):
+        self.assertIn("FTLCONF_dns_upstreams: '127.0.0.1#5335'", self.content)
+        self.assertNotIn("PIHOLE_DNS_:", self.content)
+        self.assertIn("SYS_TIME", self.content)
 
 
 if __name__ == "__main__":
