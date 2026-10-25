@@ -1,11 +1,11 @@
 # Test Results
 
-## Latest Run: 2026-10-23 (All Passed - 100%)
+## Latest Run: 2026-10-24 (All Passed - 100%)
 
 ### Summary
 | Test Suite | Total Tests | Passed | Failed | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `environment/tests/test_container_config.py` | 23 | 23 | 0 | ✅ PASS |
+| `environment/tests/test_container_config.py` | 25 | 25 | 0 | ✅ PASS |
 | `environment/tests/test_security_eval.py` | 6 | 6 | 0 | ✅ PASS |
 | `environment/tests/test_security_eval.sh` | 10 | 10 | 0 | ✅ PASS |
 
@@ -29,6 +29,8 @@
 - `test_entrypoint_checks_local_router_gateway`: ✅ PASS (dynamically extracts default gateway via ip route)
 - `test_tier1_providers_present`: ✅ PASS (5 Tier-1 providers: Cloudflare, Google, NIST, Apple, Microsoft)
 - `test_ip_format_validity`: ✅ PASS (all provider Anycast IPs strictly valid IPv4 syntax)
+- `test_dual_ip_redundancy_per_provider`: ✅ PASS (at least 2 distinct Anycast IPs configured per provider with zero duplicates)
+- `test_ntp_workflow_separated_and_weekly`: ✅ PASS (ntp-verifier.yml runs weekly Sunday 00:00 UTC with anti-flapping pool guard; removed from hourly update-checker.yml)
 - `test_preflight_checkconf`: ✅ PASS (unbound-checkconf pre-flight in entrypoint verified)
 - `test_root_anchor_initialization`: ✅ PASS (unbound-anchor initialization in entrypoint verified)
 - `test_fail_fast_on_startup_failure`: ✅ PASS (exit 1 fail-fast active on daemon start failure)

@@ -159,6 +159,8 @@ class TestNtpServersConfig(unittest.TestCase):
     """Validate docker/ntp-servers.conf providers and Anycast IP formatting."""
 
     NTP_CONF_PATH = os.path.join(PROJECT_ROOT, "docker", "ntp-servers.conf")
+    NTP_WORKFLOW_PATH = os.path.join(PROJECT_ROOT, ".github", "workflows", "ntp-verifier.yml")
+    UPDATE_CHECKER_PATH = os.path.join(PROJECT_ROOT, ".github", "workflows", "update-checker.yml")
 
     @classmethod
     def setUpClass(cls):
@@ -175,9 +177,29 @@ class TestNtpServersConfig(unittest.TestCase):
         """Verify each provider line has valid IPv4 syntax."""
         ip_regex = re.compile(r"^[A-Z0-9_-]+\|[a-z0-9.-]+\|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
         lines = [line.strip() for line in self.content.splitlines() if line.strip() and not line.startswith("#")]
-        self.assertGreaterEqual(len(lines), 5, "At least 5 provider lines expected")
+        self.assertGreaterEqual(len(lines), 10, "At least 10 provider lines (2 per provider) expected")
         for line in lines:
             self.assertTrue(ip_regex.match(line), f"Malformed NTP provider entry: {line}")
+
+    def test_dual_ip_redundancy_per_provider(self):
+        """Verify each Tier-1 provider has at least 2 distinct IPs configured for high availability."""
+        providers = ["CLOUDFLARE", "GOOGLE", "NIST", "APPLE", "MICROSOFT"]
+        lines = [line.strip() for line in self.content.splitlines() if line.strip() and not line.startswith("#")]
+        for p in providers:
+            matching = [line.split("|")[2] for line in lines if line.startswith(f"{p}|")]
+            self.assertGreaterEqual(len(matching), 2, f"Provider {p} must have at least 2 IP entries")
+            self.assertEqual(len(matching), len(set(matching)), f"Provider {p} must not contain duplicate IPs")
+
+    def test_ntp_workflow_separated_and_weekly(self):
+        """Verify NTP verifier runs on dedicated weekly schedule and removed from hourly update checker."""
+        with open(self.NTP_WORKFLOW_PATH, "r", encoding="utf-8") as f:
+            ntp_wf = f.read()
+        self.assertIn("cron: '0 0 * * 0'", ntp_wf, "NTP verifier must run weekly on Sunday")
+        self.assertIn("workflow_dispatch:", ntp_wf)
+
+        with open(self.UPDATE_CHECKER_PATH, "r", encoding="utf-8") as f:
+            checker_wf = f.read()
+        self.assertNotIn("Verify and Refresh NTP Fallback IPs", checker_wf, "Update checker must not run hourly NTP updates")
 
 
 class TestClockResuscitation(unittest.TestCase):

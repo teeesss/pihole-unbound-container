@@ -153,13 +153,13 @@ To eliminate this deadlock without forcing users to rely on commercial DNS forwa
 1. **Guarded Execution**: The recovery script checks if the system clock year is behind the image build year (`/etc/build_year`). **If your system time is already current (normal boot), this function exits in milliseconds with zero network requests.**
 2. **Local Router NTP First**: The container reads the default gateway from the kernel routing table. If that router serves NTP, time syncs on the LAN with no external query.
 3. **Multi-Vendor Anycast NTP**: If router NTP does not set a sane clock, the container queries these Tier-1 servers by raw IP, still with NTP, before it trusts any HTTP `Date` header:
-   - **Cloudflare**: `162.159.200.1` (`time.cloudflare.com`)
-   - **Google**: `216.239.35.0` (`time.google.com`)
-   - **NIST (US Gov Atomic Clock)**: `129.6.15.28` (`time.nist.gov`)
-   - **Apple**: `17.253.34.253` (`time.apple.com`)
-   - **Microsoft**: `40.119.6.228` (`time.windows.com`)
+   - **Cloudflare**: `162.159.200.1`, `162.159.200.123` (`time.cloudflare.com`)
+   - **Google**: `216.239.35.0`, `216.239.35.4` (`time.google.com`)
+   - **NIST (US Gov Atomic Clock)**: `129.6.15.28`, `132.163.96.1` (`time.nist.gov`)
+   - **Apple**: `17.253.34.253`, `17.253.2.43` (`time.apple.com`)
+   - **Microsoft**: `40.119.6.228`, `168.61.215.74` (`time.windows.com`)
 4. **HTTP only after NTP**: If UDP/123 fails for every candidate, it reads an HTTP `Date` header on port 80. Anycast addresses are tried before the router's web interface, so a router admin page cannot set the clock first. The quick-start compose file adds `SYS_TIME` because Docker does not grant that capability by default, and the container clock is the host clock.
-5. **Automated CI Maintenance**: Our GitHub Actions pipeline continuously resolves upstream time hostnames and auto-updates the IP list if providers ever migrate subnets.
+5. **Automated Weekly Maintenance**: Our dedicated weekly GitHub Actions workflow audits upstream time hostnames and auto-updates the IP list with zero-flap pool validation if providers ever migrate subnets.
 
 #### Privacy & Opt-Out Controls
 If you operate in an air-gapped environment or prefer to manage system time exclusively through host tools:
@@ -179,22 +179,22 @@ If you operate in an air-gapped environment or prefer to manage system time excl
 If you also run bare-metal Pi-holes or standard Raspberry Pi OS devices (outside Docker) that experience this same power-outage deadlock, run this single command on the Raspberry Pi host.
 
 Each fallback IP is mapped to an authoritative Tier-1 Anycast provider so you know exactly which servers are queried:
-- `162.159.200.1` — **Cloudflare** (`time.cloudflare.com`)
-- `216.239.35.0` — **Google** (`time.google.com`)
-- `129.6.15.28` — **NIST US Gov Atomic Clock** (`time.nist.gov`)
-- `17.253.34.253` — **Apple** (`time.apple.com`)
-- `40.119.6.228` — **Microsoft** (`time.windows.com`)
+- `162.159.200.1`, `162.159.200.123` — **Cloudflare** (`time.cloudflare.com`)
+- `216.239.35.0`, `216.239.35.4` — **Google** (`time.google.com`)
+- `129.6.15.28`, `132.163.96.1` — **NIST US Gov Atomic Clock** (`time.nist.gov`)
+- `17.253.34.253`, `17.253.2.43` — **Apple** (`time.apple.com`)
+- `40.119.6.228`, `168.61.215.74` — **Microsoft** (`time.windows.com`)
 
 ```bash
 sudo mkdir -p /etc/systemd/timesyncd.conf.d && sudo tee /etc/systemd/timesyncd.conf.d/fallback-raw-ips.conf << 'EOF'
 [Time]
 # Multi-Vendor Tier-1 Anycast NTP Fallback (DNS-free cold-boot time recovery)
-# 162.159.200.1 = Cloudflare (time.cloudflare.com)
-# 216.239.35.0  = Google (time.google.com)
-# 129.6.15.28   = NIST US Gov Atomic Clock (time.nist.gov)
-# 17.253.34.253 = Apple (time.apple.com)
-# 40.119.6.228  = Microsoft (time.windows.com)
-FallbackNTP=162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228
+# Cloudflare (time.cloudflare.com): 162.159.200.1 162.159.200.123
+# Google (time.google.com):         216.239.35.0 216.239.35.4
+# NIST Atomic Clock (time.nist.gov): 129.6.15.28 132.163.96.1
+# Apple (time.apple.com):           17.253.34.253 17.253.2.43
+# Microsoft (time.windows.com):     40.119.6.228 168.61.215.74
+FallbackNTP=162.159.200.1 162.159.200.123 216.239.35.0 216.239.35.4 129.6.15.28 132.163.96.1 17.253.34.253 17.253.2.43 40.119.6.228 168.61.215.74
 EOF
 sudo systemctl restart systemd-timesyncd
 ```

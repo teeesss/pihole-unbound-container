@@ -44,7 +44,7 @@ sync_clock_if_skewed() {
 
     # Fallback hardcoded defaults if nothing else is available
     if [ -z "$custom_ips" ] && [ -z "$router_ip" ] && [ -z "$anycast_ips" ]; then
-        anycast_ips="162.159.200.1 216.239.35.0 129.6.15.28 17.253.34.253 40.119.6.228"
+        anycast_ips="162.159.200.1 162.159.200.123 216.239.35.0 216.239.35.4 129.6.15.28 132.163.96.1 17.253.34.253 17.253.2.43 40.119.6.228 168.61.215.74"
     fi
 
     clock_year_ok() {
