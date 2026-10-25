@@ -140,12 +140,17 @@ The bundled Unbound configuration has IPv6 disabled by default (`do-ip6: no`). I
 ### ⏱️ Cold-Boot DNSSEC & Time Recovery (Raspberry Pi & SBCs)
 
 #### The Problem: The "Chicken-and-Egg" Deadlock
-Single-board computers like the **Raspberry Pi lack a hardware battery-backed Real-Time Clock (RTC)**. When power is lost or the device is cold-booted:
-1. The host system clock resets to 1970 (or the last saved timestamp).
-2. Unbound starts up with DNSSEC validation enforced (`harden-dnssec-stripped: yes`).
-3. DNSSEC compares the digital signatures (`RRSIG`) of upstream domains against the local system clock. Because the system clock is in 1970, all signatures are evaluated as expired or not yet valid, causing Unbound to return `SERVFAIL` on **every single DNS query**.
-4. The host OS's NTP daemon attempts to sync the clock by resolving `pool.ntp.org` via Pi-hole (`127.0.0.1`).
-5. Because DNS is dead, NTP cannot resolve the time servers. Because time cannot sync, DNS remains permanently dead.
+Single-board computers like the **Raspberry Pi lack a battery-backed hardware Real-Time Clock (RTC)** (Pi 1–4 lack an RTC chip entirely; Pi 5 has an RTC header but requires an optional battery accessory).
+
+To compensate, Raspberry Pi OS and Debian-based distros install `fake-hwclock`, which periodically saves the current time to a file on the SD card (`/etc/fake-hwclock.data`) and restores it on boot. However, `fake-hwclock` fails in common real-world scenarios:
+- **Ungraceful Power Cuts**: An abrupt power outage prevents `fake-hwclock` from writing its shutdown timestamp, resetting the clock back to the last hourly cron save or previous boot time.
+- **Extended Downtime**: If the device is unplugged or powered off for several days or weeks, `fake-hwclock` restores a stale date from the past when power returns.
+- **Corrupt / Fresh Installations**: New SD card flashes or corrupted storage default the hardware clock to the Unix epoch (`1970-01-01`).
+
+When the host boots under any of these conditions, a fatal deadlock occurs:
+1. **Container Shares Kernel Clock**: Docker containers do not maintain an independent hardware clock; they share the host Linux kernel's `CLOCK_REALTIME`. If the Raspberry Pi boots into the past, the container's clock is identical.
+2. **DNSSEC Signature Rejection**: Unbound enforces cryptographic DNSSEC validation (`harden-dnssec-stripped: yes`). It validates upstream digital signatures (`RRSIG`) against the local clock. Because RRSIG records have strict validity windows (typically 7 to 14 days), a clock set to 1970 or an outdated `fake-hwclock` date evaluates all signatures as expired or not yet valid. Unbound returns `SERVFAIL` on **every single DNS query**.
+3. **Deadlock in NTP Resolution**: The host's NTP daemon (`systemd-timesyncd` or `chrony`) attempts to sync time by resolving `pool.ntp.org` via Pi-hole (`127.0.0.1`). Because Unbound returns `SERVFAIL`, DNS resolution fails. Because DNS is dead, NTP cannot resolve the time servers. Because time cannot sync, DNSSEC remains broken permanently. The device is deadlocked until manual intervention.
 
 #### The Autonomous Solution
 To eliminate this deadlock without forcing users to rely on commercial DNS forwarders (1.1.1.1, 8.8.8.8), the container includes an autonomous, guarded clock-recovery mechanism in its entrypoint:
