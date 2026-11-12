@@ -7,6 +7,6 @@ The following upstream release(s) have been detected and are currently cooling d
 
 | Component | Target Version | Upstream Released | Current Age | Policy / Buffer | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| Pi-hole | `2026.11.0` | 2026-11-11T19:38:51Z | 2h | ⚡ Security Fast-Track (12h): Security indicator: Security Fixes | ⏳ Cooling (~9h remaining) |
+| Pi-hole | `2026.11.0` | 2026-11-11T19:38:51Z | 7h | ⚡ Security Fast-Track (12h): Security indicator: Security Fixes | ⏳ Cooling (~4h remaining) |
 
-_Last checked: 2026-11-11 22:28:20 UTC_
+_Last checked: 2026-11-12 03:36:20 UTC_
